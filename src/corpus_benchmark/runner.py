@@ -33,17 +33,20 @@ def _resolve_bundle(bundle: DatasetBundle, corpora: dict, contexts: dict) -> Met
 
 
 def _load_corpus(workspace: GlobalWorkspace, benchmark_name: str, benchmark_config: BenchmarkConfig) -> BenchmarkCorpus:
-    # 1. Try to load from cache
+    # 1. Make sure files are ready. We check this first to ensure that
+    # if acquisition was interrupted, we re-acquire before trusting any cache.
+    logger.info(f"Loading corpus {benchmark_name}")
+    was_ready = workspace.acquisition_manager.ensure_corpus_ready(benchmark_name, benchmark_config)
+
+    # 2. Try to load from cache
     cache_path = Path(benchmark_config.cache_filename) if benchmark_config.cache_filename else None
-    if cache_path and cache_path.exists():
+    if was_ready and cache_path and cache_path.exists():
         try:
             logger.info(f'Loading corpus "{benchmark_name}" from cache at {cache_path}')
             return BenchmarkCorpus.from_json(cache_path)
         except Exception as e:
             logger.warning(f'Could not load cache at {cache_path} for corpus "{benchmark_name}". Starting fresh. Error was {e}')
-    # 2. Make sure files downloaded
-    logger.info(f"Loading corpus {benchmark_name}")
-    workspace.acquisition_manager.ensure_corpus_ready(benchmark_name, benchmark_config)
+
     # 3. Load from corpus-specific formats
     loader_name = benchmark_config.loader.name
     if loader_name not in LOADERS:
