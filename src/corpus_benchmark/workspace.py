@@ -98,8 +98,7 @@ class GlobalWorkspace:
             ),
         }
 
-    @staticmethod
-    def _format_stored_record(record: StoredRecord) -> Dict[str, Any]:
+    def _format_stored_record(self, record: StoredRecord) -> Dict[str, Any]:
         metadata = dict(record.data)
         identifiers: dict[DocumentIdentifierType | str, str | list[str]] = {}
         for raw_id_type, values in record.identifiers.items():
@@ -109,6 +108,13 @@ class GlobalWorkspace:
                 id_type = raw_id_type.lower()
             identifiers[id_type] = values[0] if len(values) == 1 else values
         metadata["identifiers"] = identifiers
+
+        # Populate journal name from journal store if missing in document record
+        if metadata.get("journal") is None and metadata.get("journal_id") is not None:
+            journal_record = self.get_journal_metadata_by_id(metadata["journal_id"])
+            if journal_record:
+                metadata["journal"] = journal_record.get("abbreviation")
+
         return metadata
 
     def _get_document_record(self, id_type: DocumentIdentifierType, id_val: str) -> Dict[str, Any] | None:
@@ -275,10 +281,7 @@ class GlobalWorkspace:
 
         if identifiers:
             if existing is not None:
-                merged_identifiers: dict[str, list[Any]] = {
-                    key: list(values)
-                    for key, values in existing.identifiers.items()
-                }
+                merged_identifiers: dict[str, list[Any]] = {key: list(values) for key, values in existing.identifiers.items()}
                 for key, values in identifiers.items():
                     merged_identifiers.setdefault(key, []).extend(self._as_list(values))
                 return self.journal_store.upsert(identifiers=merged_identifiers, data=data)
@@ -395,15 +398,8 @@ class GlobalWorkspace:
         document_record: StoredRecord,
         journal_record: StoredRecord,
     ) -> dict[str, Any]:
-        document_data: dict[str, Any] = {"journal_id": journal_record.record_id}
-        journal_name = self._clean_text(journal_record.data.get("name"))
-        document_journal = self._clean_text(document_record.data.get("journal"))
-        if journal_name and (
-            not document_journal
-            or self._normalize_journal_match_text(journal_name) == self._normalize_journal_match_text(document_journal)
-        ):
-            document_data["journal"] = journal_record.data["name"]
-        return document_data
+        """Once a journal is linked, we set the journal name to None to avoid conflicts."""
+        return {"journal_id": journal_record.record_id, "journal": None}
 
     def _attach_journal_ids_from_store(self, document_records: list[StoredRecord]) -> None:
         if self.journal_store is None:

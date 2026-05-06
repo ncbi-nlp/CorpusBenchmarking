@@ -122,6 +122,8 @@ class JsonRecordStore:
 
     VALID_FIELD_POLICIES = {
         "strict",
+        "strict_case_insensitive",
+        "first_seen",
         "set_union",
         "append",
         "replace",
@@ -299,6 +301,24 @@ class JsonRecordStore:
                     pass
                 else:
                     raise MetadataConflictError(f"Conflicting value for field {key!r}: " f"existing={existing_value!r}, incoming={incoming_value!r}")
+
+            elif policy == "strict_case_insensitive":
+                if existing_value is None:
+                    merged[key] = incoming_value
+                elif incoming_value is None:
+                    pass
+                elif str(existing_value).lower() == str(incoming_value).lower():
+                    pass
+                else:
+                    raise MetadataConflictError(
+                        f"Conflicting value (case-insensitive) for field {key!r}: "
+                        f"existing={existing_value!r}, incoming={incoming_value!r}"
+                    )
+
+            elif policy == "first_seen":
+                if existing_value is None:
+                    merged[key] = incoming_value
+                # Otherwise, keep existing_value regardless of incoming_value
 
             elif policy == "set_union":
                 merged[key] = self._merge_set_union(existing_value, incoming_value)

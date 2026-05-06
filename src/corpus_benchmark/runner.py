@@ -80,7 +80,7 @@ def _create_document_record_store(document_store_filename: str) -> JsonRecordSto
         },
         field_policies={
             "pub_year": "strict",
-            "journal": "strict",
+            "journal": "replace",
             "journal_id": "strict",
             "mesh_topics": "set_union",
         },

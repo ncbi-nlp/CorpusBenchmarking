@@ -51,6 +51,7 @@ def get_workspace(target: MetricTarget) -> GlobalWorkspace:
 class MetricTarget:
     """Wraps multiple CorpusSubsets and their Contexts to appear as a single target."""
 
+    # TODO Move workspace out of BenchmarkContext to here
     name: str
     components: list[tuple[CorpusSubset, BenchmarkContext]] = field(default_factory=list)
 
