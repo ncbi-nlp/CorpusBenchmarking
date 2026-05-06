@@ -3,13 +3,13 @@ import gzip
 import logging
 import pathlib
 import pickle
-import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Iterator, Set, Iterable
 
 from corpus_benchmark.models.config import WorkspaceConfig
 from corpus_benchmark.models.terminologies import TerminologyResource, TerminologyConcept
 from corpus_benchmark.registry import register_terminology_loader
+from utils.download import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -158,11 +158,7 @@ def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyRes
                 url = f"{base_url}/{gz_filename}"
                 logger.info(f"Attempting to download {url} -> {gz_dest}")
                 try:
-                    # Add a basic user agent
-                    opener = urllib.request.build_opener()
-                    opener.addheaders = [("User-agent", "Mozilla/5.0")]
-                    urllib.request.install_opener(opener)
-                    urllib.request.urlretrieve(url, gz_dest)
+                    download_file(url, gz_dest)
                     local_paths[key] = gz_dest
                 except Exception as e:
                     logger.warning(f"Failed to download .gz version: {e}")
@@ -170,7 +166,7 @@ def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyRes
                     url = f"{base_url}/{filename}"
                     logger.info(f"Attempting to download {url} -> {dest}")
                     try:
-                        urllib.request.urlretrieve(url, dest)
+                        download_file(url, dest)
                         local_paths[key] = dest
                     except Exception as e2:
                         logger.error(f"Error downloading {url}: {e2}")

@@ -4,7 +4,6 @@ import gzip
 import logging
 import shutil
 import tarfile
-import urllib.request
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -13,6 +12,7 @@ from urllib.parse import unquote, urlparse
 
 from corpus_benchmark.models.config import BenchmarkConfig, WorkspaceConfig
 from corpus_benchmark.registry import CONVERTERS
+from utils.download import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +82,7 @@ class AcquisitionManager:
 
             if not dest_path.exists():
                 logger.info("  Downloading %s -> %s", url, dest_path)
-                # Use a temporary file to avoid leaving partial downloads if interrupted.
-                tmp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
-                try:
-                    urllib.request.urlretrieve(url, tmp_path)
-                    tmp_path.replace(dest_path)
-                except Exception:
-                    if tmp_path.exists():
-                        tmp_path.unlink()
-                    raise
+                download_file(url, dest_path)
             else:
                 logger.info("  Reusing downloaded file %s", dest_path)
 
