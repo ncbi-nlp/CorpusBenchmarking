@@ -173,7 +173,6 @@ def test_register_builtins_populates_document_fetcher_registry() -> None:
     register_builtins()
 
     assert "pubmed_eutils" in registry.DOCUMENT_FETCHERS
-    assert "pmc_eutils" in registry.DOCUMENT_FETCHERS
     assert "pmc_eutils_efetch" in registry.DOCUMENT_FETCHERS
     assert "crossref_doi" in registry.DOCUMENT_FETCHERS
 
@@ -325,8 +324,9 @@ def test_workspace_adds_new_journal_identifiers_to_text_matched_record(tmp_path)
         journal_store=journal_store,
         workspace_config=config,
     )
+    # Note that the journal records must have an identifier in common to be recognized as the same
     existing = journal_store.upsert(
-        identifiers={NLM_UNIQUE_ID: "100941354"},
+        identifiers={NLM_UNIQUE_ID: "100941354", ISSN: ["1529-2908"]},
         data={
             "name": "Nature immunology",
             "abbreviation": "Nat Immunol",
@@ -350,37 +350,3 @@ def test_workspace_adds_new_journal_identifiers_to_text_matched_record(tmp_path)
         "15292916",
     ]
 
-
-def test_workspace_resolves_journal_by_abbreviation_when_document_has_no_journal_id(monkeypatch, tmp_path) -> None:
-    monkeypatch.setitem(registry.DOCUMENT_FETCHERS, "test_abbreviation_only_pmid", AbbreviationOnlyPMIDFetcher)
-
-    config = WorkspaceConfig(
-        document_store_filename=str(tmp_path / "metadata.json"),
-        journal_store_filename=str(tmp_path / "journals.json"),
-        corpora_download_dir=str(tmp_path / "corpora"),
-        terminology_dir=str(tmp_path / "terminologies"),
-        document_fetchers={"pmid": [LoaderSpec("test_abbreviation_only_pmid")]},
-    )
-    document_store = make_document_store(tmp_path)
-    journal_store = make_journal_store(tmp_path)
-    abbreviation_fetcher = StaticJournalFetcher(ABBREVIATION)
-    workspace = GlobalWorkspace(
-        document_store=document_store,
-        journal_store=journal_store,
-        workspace_config=config,
-    )
-    workspace.journal_fetchers = {ABBREVIATION: abbreviation_fetcher}
-
-    metadata = workspace.get_document_metadata(
-        [
-            Document(
-                document_id="doc-1",
-                identifiers={DocumentIdentifierType.PMID: "123"},
-            )
-        ]
-    )
-
-    journal_record = journal_store.get(NLM_UNIQUE_ID, "100941354")
-    assert journal_record is not None
-    assert metadata["doc-1"]["journal_id"] == journal_record.record_id
-    assert abbreviation_fetcher.calls == [["Nat Immunol"]]

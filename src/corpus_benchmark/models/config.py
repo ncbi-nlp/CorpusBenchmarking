@@ -104,7 +104,7 @@ class WorkspaceConfig:
     document_fetchers: dict[str, list[LoaderSpec]] = field(
         default_factory=lambda: {
             "pmid": [LoaderSpec("pubmed_eutils")],
-            "pmcid": [LoaderSpec("pmc_eutils_efetch"), LoaderSpec("pmc_eutils")],
+            "pmcid": [LoaderSpec("pmc_eutils_efetch")],
         }
     )
 

@@ -8,7 +8,6 @@ workspace:
         - name: pubmed_eutils
       pmcid:
         - name: pmc_eutils_efetch
-        - name: pmc_eutils
 
 terminologies:
   mesh:

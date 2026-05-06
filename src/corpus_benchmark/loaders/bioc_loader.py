@@ -116,7 +116,7 @@ class Loader:
         if identifier_text is None:
             return None
         link = self._parse_identifier(identifier_text.strip(), self.id_format_list)
-        logger.debug(f'Loader.parse_identifier(): identifier_text = "{identifier_text}"; link = "{link}"')
+        # logger.debug(f'TRACE Loader.parse_identifier(): identifier_text = "{identifier_text}"; link = "{link}"')
         return link
 
     def _parse_identifier(self, identifier_text: str, identifier_format_list: list[IdentifierFormat] | None) -> Link:

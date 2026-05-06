@@ -350,17 +350,14 @@ class GlobalWorkspace:
         if len(matching_record_ids) == 1:
             return self.journal_store.get_by_record_id(next(iter(matching_record_ids)))
         if len(matching_record_ids) > 1:
+            # TODO Verify this should never happen and raise an error instead
             warning_key = tuple(sorted(matching_record_ids))
             if warning_key not in self._ambiguous_journal_match_warnings:
                 self._ambiguous_journal_match_warnings.add(warning_key)
-                # TODO Figure out why this error goes away if we rerun it
                 logger.warning(
                     "Journal metadata matched multiple journal records: %s",
                     sorted(matching_record_ids),
                 )
-                logger.warning(f"TEST Ambiguous journal by ID; journal_metadata = {journal_metadata}")
-                logger.warning(f"TEST Ambiguous journal by ID; identifiers = {identifiers}")
-                logger.warning(f"TEST Ambiguous journal by ID; matching_record_ids = {matching_record_ids}")
         return None
 
     def _find_journal_record_for_info(self, journal_metadata: dict[str, Any]) -> StoredRecord | None:
@@ -380,11 +377,7 @@ class GlobalWorkspace:
 
         target_texts = None
         if len(matching_record_ids) < 1:
-            # TESTING Only try the journal text if we don't already have the record
-            # FIXME : this is causing ambiguous errors AND slowing us down
-            # TODO after pulling identifiers, if we have it, return it
-            # TODO ONLY after recognizing we don't have the identifiers do we check names
-            # TODO OR... what if we require an identifier for the journal?
+            # Only try the journal text if we don't already have the record
             target_texts = {self._normalize_journal_match_text(value) for value in self._journal_text_values_from_metadata(journal_metadata)}
             if target_texts:
                 for record in self.journal_store:
@@ -392,7 +385,8 @@ class GlobalWorkspace:
                     if target_texts & record_texts:
                         matching_record_ids.add(record.record_id)
             if len(matching_record_ids) > 0:
-                logger.warning("TEST journal found by text; journal_metadata = {journal_metadata}")
+                # TODO If querying journal by text is not needed, remove it
+                logger.info("Journal found by text; journal_metadata = {journal_metadata}")
 
         if len(matching_record_ids) == 1:
             return self.journal_store.get_by_record_id(next(iter(matching_record_ids)))
@@ -400,15 +394,10 @@ class GlobalWorkspace:
             warning_key = tuple(sorted(matching_record_ids))
             if warning_key not in self._ambiguous_journal_match_warnings:
                 self._ambiguous_journal_match_warnings.add(warning_key)
-                # TODO Figure out why this error goes away if we rerun it
                 logger.warning(
                     "Journal metadata matched multiple journal records: %s",
                     sorted(matching_record_ids),
                 )
-                logger.warning(f"TEST Ambiguous journal by info; journal_metadata = {journal_metadata}")
-                logger.warning(f"TEST Ambiguous journal by info; identifiers = {identifiers}")
-                logger.warning(f"TEST Ambiguous journal by info; target_texts = {target_texts}")
-                logger.warning(f"TEST Ambiguous journal by info; matching_record_ids = {matching_record_ids}")
         return None
 
     def _journal_record_id_exists(self, record_id: Any) -> bool:

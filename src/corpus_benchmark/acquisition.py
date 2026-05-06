@@ -82,7 +82,8 @@ class AcquisitionManager:
 
             if not dest_path.exists():
                 logger.info("  Downloading %s -> %s", url, dest_path)
-                download_file(url, dest_path)
+                # NOTE: some repos (e.g. Zenodo) insist on a meaningful user_agent
+                download_file(url, dest_path, user_agent="CorpusBenchmarking/0.1")
             else:
                 logger.info("  Reusing downloaded file %s", dest_path)
 
