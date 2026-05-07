@@ -43,41 +43,53 @@ BAR_SCALE = 0.65
 logger = logging.getLogger(__name__)
 
 JOURNAL_TOPIC_ORDER = [
-    "Diseases",
-    "Chemicals and Drugs",
-    "Psychiatry and Psychology",
-    "Anatomy",
-    "Biological Sciences",
-    "Analytical, Diagnostic and Therapeutic Techniques and Equipment",
-    "Organisms",
-    "Health Care",
-    "Technology and Food and Beverages",
-    "Physical Sciences",
-    "Anthropology, Education, Sociology and Social Phenomena",
-    "Information Science",
-    "Humanities",
-    "Persons",
-    "Publication Characteristics",
-    "Geographic Locations",
+    "Multidisciplinary",
+    "Cell & developmental biology",
+    "Molecular biology / biochemistry",
+    "Genetics/genomics",
+    "Neuroscience & neurology",
+    "Microbiology/pathogenesis",
+    "Pharmacology",
+    "Toxicology",
+    "Oncology",
+    "Public health / health services",
+    "Chemistry / Materials Science",
+    "Immunology",
+    "Psychiatry & psychology",
+    "Health disciplines",
+    "General biology / anatomy / physiology",
+    "General natural sciences",
+    "General / internal medicine",
+    "Nutrition, metabolism, and food science",
+    "Surgery / anesthesia / perioperative",
+    "Diagnostics / pathology / radiology",
+    "Pediatrics / reproductive / developmental medicine",
+    "Clinical specialties by organ system",
 ]
 
 JOURNAL_TOPIC_COLORS = {
-    "Diseases": "#E24B4A",
-    "Chemicals and Drugs": "#378ADD",
-    "Psychiatry and Psychology": "#D4537E",
-    "Anatomy": "#7F77DD",
-    "Biological Sciences": "#639922",
-    "Analytical, Diagnostic and Therapeutic Techniques and Equipment": "#D85A30",
-    "Organisms": "#1D9E75",
-    "Health Care": "#888780",
-    "Technology and Food and Beverages": "#BA7517",
-    "Physical Sciences": "#5DCAA5",
-    "Anthropology, Education, Sociology and Social Phenomena": "#AFA9EC",
-    "Information Science": "#8CA252",
-    "Humanities": "#BD9E39",
-    "Persons": "#AD494A",
-    "Publication Characteristics": "#6B6ECF",
-    "Geographic Locations": "#D3D1C7",
+    "Multidisciplinary": "#888780",
+    "Cell & developmental biology": "#7F77DD",
+    "Molecular biology / biochemistry": "#378ADD",
+    "Genetics/genomics": "#6B6ECF",
+    "Neuroscience & neurology": "#D4537E",
+    "Microbiology/pathogenesis": "#1D9E75",
+    "Pharmacology": "#BA7517",
+    "Toxicology": "#E24B4A",
+    "Oncology": "#D85A30",
+    "Public health / health services": "#8CA252",
+    "Chemistry / Materials Science": "#5DCAA5",
+    "Immunology": "#639922",
+    "Psychiatry & psychology": "#AFA9EC",
+    "Health disciplines": "#BD9E39",
+    "General biology / anatomy / physiology": "#2AA876",
+    "General natural sciences": "#4C78A8",
+    "General / internal medicine": "#AD494A",
+    "Nutrition, metabolism, and food science": "#F2A541",
+    "Surgery / anesthesia / perioperative": "#B279A2",
+    "Diagnostics / pathology / radiology": "#72B7B2",
+    "Pediatrics / reproductive / developmental medicine": "#FF9DA6",
+    "Clinical specialties by organ system": "#9D755D",
 }
 
 
@@ -324,7 +336,7 @@ def load_metadata(path):
             (
                 m.get("value", {})
                 for m in metrics
-                if m.get("metric_name") == "journal_topic_distribution"
+                if m.get("metric_name") == "journal_MeSH_topic_distribution"
             ),
             {},
         )
@@ -599,10 +611,11 @@ def build_metadata_panels(corpora, colours):
   <p class="sec">Journal topic distribution per corpus (%)</p>
   {topic_table}
   <div class="fn">
-    Topics are MeSH treetop categories resolved from the journal record's NLM Catalog
-    MeSH topics. Only topics with ≥ 1% share in at least one corpus are shown. Dominant
-    value per row is bold. Percentages may not sum to exactly 100 due to rounding.
-    Corpora without journal topic metadata are excluded.
+    Topics are high-level MeSH-derived journal categories resolved from the journal
+    record's NLM Catalog MeSH topics, with configured journal-name fallback topics for
+    journals that do not have MeSH topics. Only topics with ≥ 1% share in at least one
+    corpus are shown. Dominant value per row is bold. Percentages may not sum to exactly
+    100 due to rounding.
   </div>
 </div>
 
