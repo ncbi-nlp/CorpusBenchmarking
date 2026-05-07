@@ -11,10 +11,10 @@ import yaml
 
 from corpus_benchmark.builtins import register_builtins
 from corpus_benchmark.cli import load_battery_config
+from corpus_benchmark.metadata.journal_MeSH_topics import JournalMeSHTopicRootCounter
 from corpus_benchmark.metadata.journal_topics import classify_journal
 from corpus_benchmark.metrics.metadata_distribution import _mesh_topic_treetop_names
 from corpus_benchmark.models.config import LoaderSpec, WorkspaceConfig
-from corpus_benchmark.models.terminologies import TerminologyConcept
 from corpus_benchmark.models.terminologies import TerminologyResource
 from corpus_benchmark.registry import TERMINOLOGY_LOADERS
 
@@ -89,17 +89,6 @@ def _load_terminology(
     return loader(workspace_config, **spec.params)
 
 
-def _build_mesh_concept_overrides(
-    terminology: TerminologyResource,
-    mesh_term_overrides: dict[str, str],
-) -> dict[str, str]:
-    mesh_concept_overrides: dict[str, str] = {}
-    for mesh_term, topic in mesh_term_overrides.items():
-        for concept_id in terminology.get_concept_ids_by_name(mesh_term):
-            mesh_concept_overrides[concept_id] = topic
-    return mesh_concept_overrides
-
-
 def build_journal_topic_audit(
     journal_records: list[dict[str, Any]],
     metadata_records: list[dict[str, Any]],
@@ -108,10 +97,12 @@ def build_journal_topic_audit(
     journal_name_topics: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     journal_id_counts = Counter(record.get("data", {}).get("journal_id") for record in metadata_records if record.get("data", {}).get("journal_id") is not None)
-    mesh_concept_overrides = _build_mesh_concept_overrides(terminology, mesh_term_overrides)
+    root_counter = JournalMeSHTopicRootCounter(
+        terminology,
+        mesh_term_overrides,
+        journal_name_topics,
+    )
     mesh_treetop_cache: dict[str, list[str]] = {}
-    root_id_cache: dict[str, dict[str, float]] = {}
-    root_name_cache: dict[str, dict[str, float]] = {}
 
     audit_records = []
     for record in journal_records:
@@ -127,17 +118,7 @@ def build_journal_topic_audit(
                     mesh_topic,
                 )
 
-        if mesh_topics:
-            mesh_root_counts = _journal_mesh_topic_counts(
-                terminology,
-                mesh_topics,
-                root_id_cache,
-                root_name_cache,
-                _mesh_topic_root_counts_by_name,
-                mesh_concept_overrides,
-            )
-        else:
-            mesh_root_counts = _journal_name_topic_root_counts(full_name, journal_name_topics)
+        mesh_root_counts = root_counter.root_counts(full_name, mesh_topics or [])
 
         audit_records.append(
             {
@@ -165,257 +146,19 @@ def _add_weighted_counts(
         target[name] = target.get(name, 0.0) + count * weight
 
 
-def _add_weighted_nested_counts(
-    target: dict[str, dict[str, float]],
-    source: dict[str, dict[str, float]],
-    weight: float,
-) -> None:
-    for topic, child_counts in source.items():
-        topic_counts = target.setdefault(topic, {})
-        _add_weighted_counts(topic_counts, child_counts, weight)
-
-
-def _topic_parent_ids(concept: TerminologyConcept) -> list[str]:
-    if concept.parent_ids:
-        return concept.parent_ids
-    return concept.mapped_ui_ids
-
-
-def _mesh_topic_ancestor_counts_by_id(
-    terminology: TerminologyResource,
-    ui: str,
-    cache: dict[str, dict[str, float]],
-    active: set[str],
-    mesh_concept_overrides: dict[str, str],
-) -> dict[str, float]:
-    if ui in cache:
-        return cache[ui]
-    if ui in mesh_concept_overrides:
-        cache[ui] = {mesh_concept_overrides[ui]: 1.0}
-        return cache[ui]
-    if ui in active:
-        return {}
-
-    concept = terminology.get_concept(ui)
-    if concept is None:
-        cache[ui] = {}
-        return cache[ui]
-
-    active.add(ui)
-    counts = {concept.name: 1.0}
-    parent_ids = _topic_parent_ids(concept)
-    if parent_ids:
-        parent_weight = 1.0 / len(parent_ids)
-        for parent_id in parent_ids:
-            parent_counts = _mesh_topic_ancestor_counts_by_id(
-                terminology,
-                parent_id,
-                cache,
-                active,
-                mesh_concept_overrides,
-            )
-            _add_weighted_counts(counts, parent_counts, parent_weight)
-    active.remove(ui)
-
-    cache[ui] = counts
-    return counts
-
-
-def _mesh_topic_root_counts_by_id(
-    terminology: TerminologyResource,
-    ui: str,
-    cache: dict[str, dict[str, float]],
-    active: set[str],
-    mesh_concept_overrides: dict[str, str],
-) -> dict[str, float]:
-    if ui in cache:
-        return cache[ui]
-    if ui in mesh_concept_overrides:
-        cache[ui] = {mesh_concept_overrides[ui]: 1.0}
-        return cache[ui]
-    if ui in active:
-        return {}
-
-    concept = terminology.get_concept(ui)
-    if concept is None:
-        cache[ui] = {}
-        return cache[ui]
-
-    active.add(ui)
-    parent_ids = _topic_parent_ids(concept)
-    if parent_ids:
-        parent_weight = 1.0 / len(parent_ids)
-        counts: dict[str, float] = {}
-        for parent_id in parent_ids:
-            parent_counts = _mesh_topic_root_counts_by_id(
-                terminology,
-                parent_id,
-                cache,
-                active,
-                mesh_concept_overrides,
-            )
-            _add_weighted_counts(counts, parent_counts, parent_weight)
-    else:
-        counts = {concept.name: 1.0}
-    active.remove(ui)
-
-    cache[ui] = counts
-    return counts
-
-
-def _mesh_topic_root_counts_by_name(
-    terminology: TerminologyResource,
-    mesh_topic_name: str,
-    id_cache: dict[str, dict[str, float]],
-    name_cache: dict[str, dict[str, float]],
-    mesh_concept_overrides: dict[str, str],
-) -> dict[str, float]:
-    if mesh_topic_name in name_cache:
-        return name_cache[mesh_topic_name]
-
-    concept_ids = terminology.get_concept_ids_by_name(mesh_topic_name)
-    counts: dict[str, float] = {}
-    if concept_ids:
-        concept_weight = 1.0 / len(concept_ids)
-        for concept_id in concept_ids:
-            concept_counts = _mesh_topic_root_counts_by_id(
-                terminology,
-                concept_id,
-                id_cache,
-                set(),
-                mesh_concept_overrides,
-            )
-            _add_weighted_counts(counts, concept_counts, concept_weight)
-
-    name_cache[mesh_topic_name] = counts
-    return counts
-
-
-def _is_topic_boundary(
-    concept: TerminologyConcept | None,
-    ui: str,
-    mesh_concept_overrides: dict[str, str],
-) -> bool:
-    return concept is not None and (ui in mesh_concept_overrides or not _topic_parent_ids(concept))
-
-
-def _mesh_topic_root_child_counts_by_id(
-    terminology: TerminologyResource,
-    ui: str,
-    cache: dict[str, dict[str, dict[str, float]]],
-    root_cache: dict[str, dict[str, float]],
-    active: set[str],
-    mesh_concept_overrides: dict[str, str],
-) -> dict[str, dict[str, float]]:
-    if ui in cache:
-        return cache[ui]
-    if ui in active:
-        return {}
-
-    concept = terminology.get_concept(ui)
-    if concept is None:
-        cache[ui] = {}
-        return cache[ui]
-
-    if ui in mesh_concept_overrides:
-        cache[ui] = {mesh_concept_overrides[ui]: {concept.name: 1.0}}
-        return cache[ui]
-
-    parent_ids = _topic_parent_ids(concept)
-    if not parent_ids:
-        cache[ui] = {concept.name: {concept.name: 1.0}}
-        return cache[ui]
-
-    active.add(ui)
-    counts: dict[str, dict[str, float]] = {}
-    parent_weight = 1.0 / len(parent_ids)
-    for parent_id in parent_ids:
-        parent_concept = terminology.get_concept(parent_id)
-        if _is_topic_boundary(parent_concept, parent_id, mesh_concept_overrides):
-            parent_root_counts = _mesh_topic_root_counts_by_id(
-                terminology,
-                parent_id,
-                root_cache,
-                active,
-                mesh_concept_overrides,
-            )
-            for topic, root_count in parent_root_counts.items():
-                topic_counts = counts.setdefault(topic, {})
-                topic_counts[concept.name] = topic_counts.get(concept.name, 0.0) + root_count * parent_weight
-        else:
-            parent_counts = _mesh_topic_root_child_counts_by_id(
-                terminology,
-                parent_id,
-                cache,
-                root_cache,
-                active,
-                mesh_concept_overrides,
-            )
-            _add_weighted_nested_counts(counts, parent_counts, parent_weight)
-    active.remove(ui)
-
-    cache[ui] = counts
-    return counts
-
-
-def _journal_mesh_topic_counts(
-    terminology: TerminologyResource,
-    mesh_topics: list[str],
-    id_cache: dict[str, dict[str, float]],
-    name_cache: dict[str, dict[str, float]],
-    count_func,
-    mesh_concept_overrides: dict[str, str],
-) -> dict[str, float]:
-    if not mesh_topics:
-        return {}
-
-    topic_weight = 1.0 / len(mesh_topics)
-    journal_counts: dict[str, float] = {}
-    for mesh_topic in mesh_topics:
-        topic_counts = count_func(
-            terminology,
-            mesh_topic,
-            id_cache,
-            name_cache,
-            mesh_concept_overrides,
-        )
-        _add_weighted_counts(journal_counts, topic_counts, topic_weight)
-    return {
-        name: count
-        for name, count in sorted(
-            journal_counts.items(),
-            key=lambda item: (-item[1], item[0]),
-        )
-    }
-
-
-def _journal_name_topic_root_counts(
-    journal_name: str,
-    journal_name_topics: dict[str, list[str]],
-) -> dict[str, float]:
-    topics = journal_name_topics.get(journal_name, [])
-    if not topics:
-        return {}
-
-    topic_weight = 1.0 / len(topics)
-    return {
-        topic: topic_weight
-        for topic in sorted(topics)
-    }
-
-
 def _build_weighted_mesh_topic_counts(
     journal_records: list[dict[str, Any]],
     metadata_records: list[dict[str, Any]],
     terminology: TerminologyResource,
     mesh_term_overrides: dict[str, str],
     journal_name_topics: dict[str, list[str]],
-    count_func,
 ) -> dict[str, float]:
     journal_id_counts = Counter(record.get("data", {}).get("journal_id") for record in metadata_records if record.get("data", {}).get("journal_id") is not None)
-    mesh_concept_overrides = _build_mesh_concept_overrides(terminology, mesh_term_overrides)
-    id_cache: dict[str, dict[str, float]] = {}
-    name_cache: dict[str, dict[str, float]] = {}
+    root_counter = JournalMeSHTopicRootCounter(
+        terminology,
+        mesh_term_overrides,
+        journal_name_topics,
+    )
     total_counts: dict[str, float] = {}
 
     for record in journal_records:
@@ -424,19 +167,9 @@ def _build_weighted_mesh_topic_counts(
             continue
 
         mesh_topics = record.get("data", {}).get("mesh_topics", []) or []
-        if mesh_topics:
-            journal_counts = _journal_mesh_topic_counts(
-                terminology,
-                mesh_topics,
-                id_cache,
-                name_cache,
-                count_func,
-                mesh_concept_overrides,
-            )
-        else:
-            journal_data = record.get("data", {})
-            full_name = journal_data.get("name") or journal_data.get("abbreviation") or "Unknown"
-            journal_counts = _journal_name_topic_root_counts(full_name, journal_name_topics)
+        journal_data = record.get("data", {})
+        full_name = journal_data.get("name") or journal_data.get("abbreviation") or "Unknown"
+        journal_counts = root_counter.root_counts(full_name, mesh_topics)
         _add_weighted_counts(total_counts, journal_counts, float(journal_usage_count))
 
     return {
@@ -461,7 +194,6 @@ def build_mesh_topic_root_counts(
         terminology,
         mesh_term_overrides,
         journal_name_topics,
-        _mesh_topic_root_counts_by_name,
     )
 
 
@@ -472,9 +204,11 @@ def build_mesh_term_root_frequencies(
     mesh_term_overrides: dict[str, str],
 ) -> dict[str, dict[str, Any]]:
     journal_id_counts = Counter(record.get("data", {}).get("journal_id") for record in metadata_records if record.get("data", {}).get("journal_id") is not None)
-    mesh_concept_overrides = _build_mesh_concept_overrides(terminology, mesh_term_overrides)
-    id_cache: dict[str, dict[str, float]] = {}
-    name_cache: dict[str, dict[str, float]] = {}
+    root_counter = JournalMeSHTopicRootCounter(
+        terminology,
+        mesh_term_overrides,
+        {},
+    )
     total_counts: dict[str, dict[str, Any]] = {}
 
     for record in journal_records:
@@ -496,13 +230,7 @@ def build_mesh_term_root_frequencies(
                 },
             )
             topic_counts["frequency"] += topic_weight
-            root_counts = _mesh_topic_root_counts_by_name(
-                terminology,
-                mesh_topic,
-                id_cache,
-                name_cache,
-                mesh_concept_overrides,
-            )
+            root_counts = root_counter.mesh_topic_root_counts(mesh_topic)
             _add_weighted_counts(topic_counts["roots"], root_counts, topic_weight)
 
     return {
