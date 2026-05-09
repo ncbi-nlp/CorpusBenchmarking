@@ -37,13 +37,32 @@ class GlobalWorkspace:
         document_store: JsonRecordStore,
         workspace_config: WorkspaceConfig,
         journal_record_store: JournalRecordStore | None = None,
+        *,
+        journal_store: JsonRecordStore | None = None,
     ):
+        if journal_record_store is not None and journal_store is not None:
+            raise ValueError("Configure either journal_record_store or journal_store, not both")
+        if journal_store is not None:
+            journal_record_store = JournalRecordStore(journal_store)
+
         self.document_store = document_store
         self.workspace_config = workspace_config
         self.acquisition_manager = AcquisitionManager(workspace_config)
         self.terminologies = {}
         self.fetchers = build_document_fetchers(workspace_config.document_fetchers)
         self.journal_record_store = journal_record_store
+
+    @property
+    def journal_fetchers(self) -> dict[str, Any]:
+        if self.journal_record_store is None:
+            return {}
+        return self.journal_record_store.journal_fetchers
+
+    @journal_fetchers.setter
+    def journal_fetchers(self, value: dict[str, Any]) -> None:
+        if self.journal_record_store is None:
+            return
+        self.journal_record_store.journal_fetchers = value
 
     def get_document_metadata(self, documents: list[Document]) -> Dict[str, Dict[str, Any]]:
         # TODO REfactor this so that it runs one Fetcher at a time, resolving all of the documents it can
@@ -138,7 +157,7 @@ class GlobalWorkspace:
         metadata["identifiers"] = identifiers
 
         # Populate journal name from journal store if missing in document record
-        if metadata.get("journal") is None and metadata.get("journal_id") is not None:
+        if self.journal_record_store is not None and metadata.get("journal") is None and metadata.get("journal_id") is not None:
             journal_record = self.journal_record_store.get_journal_metadata_by_id(metadata["journal_id"])
             if journal_record:
                 metadata["journal"] = journal_record.get("name")
@@ -153,7 +172,7 @@ class GlobalWorkspace:
             data = {key: value for key, value in new_record.items() if key not in {"identifiers", "journal_metadata"}}
             data = self._reconcile_document_data_for_existing_record(identifiers, data)
             document_record = self.document_store.upsert(identifiers=identifiers, data=data)
-            journal_record = self.journal_record_store.upsert_journal_metadata(journal_metadata)
+            journal_record = self._upsert_journal_metadata(journal_metadata)
             if journal_record is not None:
                 document_data = self._document_journal_link_data(document_record, journal_record)
                 document_record = self.document_store.upsert(
@@ -254,6 +273,11 @@ class GlobalWorkspace:
                 identifiers=current_record.identifiers,
                 data=document_data,
             )
+
+    def _upsert_journal_metadata(self, journal_metadata: Any) -> StoredRecord | None:
+        if self.journal_record_store is None:
+            return None
+        return self.journal_record_store.upsert_journal_metadata(journal_metadata)
 
 
 def build_document_fetchers(configured_fetchers: dict[str, list[LoaderSpec]]) -> dict[DocumentIdentifierType, list[DocumentMetadataFetcher]]:
