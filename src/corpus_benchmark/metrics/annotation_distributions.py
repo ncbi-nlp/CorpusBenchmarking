@@ -29,7 +29,7 @@ def normalize_counts(counts: Counter[Any, int]) -> dict[str, int]:
     }
 
 
-@register_subset_metric("label_distribution")
+@register_subset_metric("label_distribution", supports_annotation_scope=True)
 def label_distribution(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -46,7 +46,7 @@ def label_distribution(
     )
 
 
-@register_subset_metric("identifier_resource_distribution")
+@register_subset_metric("identifier_resource_distribution", supports_annotation_scope=True)
 def identifier_resource_distribution(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:

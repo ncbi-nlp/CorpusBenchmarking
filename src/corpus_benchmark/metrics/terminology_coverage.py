@@ -4,7 +4,7 @@ import logging
 import collections
 from typing import Set, Dict, Iterable
 
-from corpus_benchmark.context import MetricTarget, get_identifiers
+from corpus_benchmark.context import MetricTarget, get_identifier_links
 from corpus_benchmark.models.terminologies import TerminologyResource
 from corpus_benchmark.registry import register_terminology_metric
 from corpus_benchmark.results import SubsetMetricResult
@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 PRECISION = 8
 NOT_FOUND_LIMIT = 10
+_GLOBAL_BRANCH_COUNT_CACHE: Dict[int, tuple[int, Dict[str, float]]] = {}
+_GLOBAL_DEPTH_COUNT_CACHE: Dict[int, tuple[int, Dict[int, float]]] = {}
 
 # TODO make these metrics resource-aware: only do ID lookups in the associated terminology
 # TODO report IDs not found as <resource>:<accession>
@@ -26,8 +28,16 @@ def _get_not_found_text(not_found: Set[str]):
         not_found_text += f" ...(+{more_count} more)"
     return not_found_text
 
-def _tree_depth(tree_number: str) -> int:
-    return len(tree_number.split("."))
+def _identifier_links_for_terminology(
+    target: MetricTarget,
+    terminology: TerminologyResource,
+    annotation_filter_name: str | None,
+):
+    return [
+        link
+        for link in get_identifier_links(target, annotation_filter_name)
+        if link.identifier is not None and terminology.accepts_resource(link.resource)
+    ]
 
 
 def _count_by_branch(terminology: TerminologyResource, ids: Iterable[str]) -> Dict[str, float]:
@@ -38,10 +48,11 @@ def _count_by_branch(terminology: TerminologyResource, ids: Iterable[str]) -> Di
         if not concepts:
             not_found.add(ui)
             continue
-        keys = []
-        for concept in concepts:
-            for tree in concept.tree_numbers:
-                keys.append(tree.split(".")[0])
+        keys = [
+            key
+            for concept in concepts
+            for key in terminology.top_ancestor_ids(concept.ui)
+        ]
         if not keys:
             continue
         weight = 1.0 / len(keys)
@@ -60,9 +71,7 @@ def _count_by_depth(terminology: TerminologyResource, ids: Iterable[str]) -> Dic
         if not concepts:
             not_found.add(ui)
             continue
-        depths = [_tree_depth(tree) for concept in concepts for tree in concept.tree_numbers]
-        if not depths:
-            continue
+        depths = [terminology.depth_for_concept(concept) for concept in concepts]
         weight = 1.0 / len(depths)
         for depth in depths:
             counts[depth] += weight
@@ -72,47 +81,65 @@ def _count_by_depth(terminology: TerminologyResource, ids: Iterable[str]) -> Dic
 
 
 def _get_global_counts_by_branch(terminology: TerminologyResource) -> Dict[str, float]:
-    # Only count concepts with tree numbers to avoid double counting mapped SCRs
-    target_ids = [c.ui for c in terminology.concepts.values() if c.tree_numbers]
-    return _count_by_branch(terminology, target_ids)
+    cache_key = id(terminology)
+    concept_count = len(terminology.concepts)
+    cached = _GLOBAL_BRANCH_COUNT_CACHE.get(cache_key)
+    if cached is not None and cached[0] == concept_count:
+        return cached[1]
+    target_ids = [c.ui for c in terminology.concepts.values()]
+    counts = _count_by_branch(terminology, target_ids)
+    _GLOBAL_BRANCH_COUNT_CACHE[cache_key] = (concept_count, counts)
+    return counts
 
 
 def _get_global_counts_by_depth(terminology: TerminologyResource) -> Dict[int, float]:
-    target_ids = [c.ui for c in terminology.concepts.values() if c.tree_numbers]
-    return _count_by_depth(terminology, target_ids)
+    cache_key = id(terminology)
+    concept_count = len(terminology.concepts)
+    cached = _GLOBAL_DEPTH_COUNT_CACHE.get(cache_key)
+    if cached is not None and cached[0] == concept_count:
+        return cached[1]
+    target_ids = [c.ui for c in terminology.concepts.values()]
+    counts = _count_by_depth(terminology, target_ids)
+    _GLOBAL_DEPTH_COUNT_CACHE[cache_key] = (concept_count, counts)
+    return counts
 
 
-@register_terminology_metric("high_level_concept_counts")
+def _branch_label(terminology: TerminologyResource, branch_code: str) -> str:
+    concept = terminology.get_concept(branch_code)
+    if concept is not None:
+        return concept.name
+    for concept in terminology.concepts.values():
+        if branch_code in getattr(concept, "tree_numbers", []):
+            return concept.name
+    return terminology.treetop_names.get(branch_code, branch_code)
+
+
+@register_terminology_metric("high_level_concept_counts", supports_annotation_scope=True)
 def high_level_concept_counts(target: MetricTarget, result_name: str, terminology: TerminologyResource, annotation_filter_name: str | None = None, **params) -> SubsetMetricResult:
-    ids = [ui for ui in get_identifiers(target, annotation_filter_name) if ui is not None]
+    identifier_links = _identifier_links_for_terminology(target, terminology, annotation_filter_name)
+    ids = [link.identifier for link in identifier_links if link.identifier is not None]
     missing_ids = [ui for ui in ids if terminology.get_concept(ui) is None]
     missing_ids = sorted(list(set(missing_ids)))
 
     corpus_counts = _count_by_branch(terminology, ids)
     global_counts = _get_global_counts_by_branch(terminology)
 
-    all_branches = sorted(set(corpus_counts.keys()) | set(global_counts.keys()))
+    all_branches = sorted(corpus_counts.keys())
     rows = []
     for branch_code in all_branches:
-        # Find a concept that has this tree number to get its name
-        label = None
-        for concept in terminology.concepts.values():
-            if branch_code in concept.tree_numbers:
-                label = concept.name
-                break
-
         count = corpus_counts.get(branch_code, 0.0)
-        mesh_total = global_counts.get(branch_code, 0.0)
-        proportion = count / mesh_total if mesh_total > 0 else 0.0
+        terminology_total = global_counts.get(branch_code, 0.0)
+        proportion = count / terminology_total if terminology_total > 0 else 0.0
 
         rows.append(
             {
                 "branch_code": branch_code,
-                "label": label,
-                "treetop": branch_code[0],
-                "treetop_name": terminology.treetop_names.get(branch_code[0]),
+                "label": _branch_label(terminology, branch_code),
+                "treetop": branch_code.split(".")[0],
+                "treetop_name": terminology.treetop_names.get(branch_code.split(".")[0]) or _branch_label(terminology, branch_code),
                 "count": round(count, PRECISION),
-                "mesh_total_count": round(mesh_total, PRECISION),
+                "terminology_total_count": round(terminology_total, PRECISION),
+                "mesh_total_count": round(terminology_total, PRECISION),
                 "proportion": round(proportion, PRECISION),
             }
         )
@@ -126,13 +153,16 @@ def high_level_concept_counts(target: MetricTarget, result_name: str, terminolog
             "n_input_ids": len(ids),
             "n_missing_ids": len(missing_ids),
             "missing_ids": missing_ids,
+            "terminology": terminology.name,
+            "resource_aliases": terminology.aliases,
         },
     )
 
 
-@register_terminology_metric("concept_depth_counts")
+@register_terminology_metric("concept_depth_counts", supports_annotation_scope=True)
 def concept_depth_counts(target: MetricTarget, result_name: str, terminology: TerminologyResource, annotation_filter_name: str | None = None, **params) -> SubsetMetricResult:
-    ids = [ui for ui in get_identifiers(target, annotation_filter_name) if ui is not None]
+    identifier_links = _identifier_links_for_terminology(target, terminology, annotation_filter_name)
+    ids = [link.identifier for link in identifier_links if link.identifier is not None]
 
     corpus_counts = _count_by_depth(terminology, ids)
     global_counts = _get_global_counts_by_depth(terminology)
@@ -146,9 +176,23 @@ def concept_depth_counts(target: MetricTarget, result_name: str, terminology: Te
             {
                 "depth": d,
                 "count": round(c_count, PRECISION),
+                "terminology_total_count": round(m_count, PRECISION),
                 "mesh_total_count": round(m_count, PRECISION),
                 "proportion": round(c_count / m_count, PRECISION) if m_count > 0 else 0.0,
             }
         )
 
-    return SubsetMetricResult(result_name=result_name, metric_name="concept_depth_counts", subset_name=target.name, value=rows)
+    missing_ids = sorted({ui for ui in ids if terminology.get_concept(ui) is None})
+    return SubsetMetricResult(
+        result_name=result_name,
+        metric_name="concept_depth_counts",
+        subset_name=target.name,
+        value=rows,
+        details={
+            "n_input_ids": len(ids),
+            "n_missing_ids": len(missing_ids),
+            "missing_ids": missing_ids,
+            "terminology": terminology.name,
+            "resource_aliases": terminology.aliases,
+        },
+    )

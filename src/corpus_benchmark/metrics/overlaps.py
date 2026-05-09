@@ -33,7 +33,7 @@ def token_overlap(target1: MetricTarget, target2: MetricTarget, result_name: str
     )
 
 
-@register_cross_metric("mention_overlap")
+@register_cross_metric("mention_overlap", supports_annotation_scope=True)
 def mention_overlap(
     target1: MetricTarget,
     target2: MetricTarget,
@@ -60,7 +60,7 @@ def mention_overlap(
     )
 
 
-@register_cross_metric("mention_token_overlap")
+@register_cross_metric("mention_token_overlap", supports_annotation_scope=True)
 def mention_token_overlap(
     target1: MetricTarget,
     target2: MetricTarget,
@@ -87,7 +87,7 @@ def mention_token_overlap(
     )
 
 
-@register_cross_metric("identifier_overlap")
+@register_cross_metric("identifier_overlap", supports_annotation_scope=True)
 def identifier_overlap(
     target1: MetricTarget,
     target2: MetricTarget,

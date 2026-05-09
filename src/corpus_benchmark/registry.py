@@ -89,7 +89,12 @@ def register_document_fetcher(name: str):
     return decorator
 
 
-def register_subset_metric(name: str, *, requires_metadata: bool = False):
+def register_subset_metric(
+    name: str,
+    *,
+    requires_metadata: bool = False,
+    supports_annotation_scope: bool = False,
+):
     """Register a metric under a stable symbolic name."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -98,13 +103,14 @@ def register_subset_metric(name: str, *, requires_metadata: bool = False):
         logger.debug("Registering subset metric '%s' from %s", name, func.__module__)
         wrapped = _wrap_with_logging("subset metric", name, func)
         setattr(wrapped, "requires_metadata", requires_metadata)
+        setattr(wrapped, "supports_annotation_scope", supports_annotation_scope)
         SUBSET_METRICS[name] = wrapped
         return wrapped
 
     return decorator
 
 
-def register_cross_metric(name: str):
+def register_cross_metric(name: str, *, supports_annotation_scope: bool = False):
     """Register a metric under a stable symbolic name."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -112,13 +118,14 @@ def register_cross_metric(name: str):
             raise ValueError(f"Metric '{name}' is already registered.")
         logger.debug("Registering cross metric '%s' from %s", name, func.__module__)
         wrapped = _wrap_with_logging("cross metric", name, func)
+        setattr(wrapped, "supports_annotation_scope", supports_annotation_scope)
         CROSS_METRICS[name] = wrapped
         return wrapped
 
     return decorator
 
 
-def register_terminology_metric(name: str):
+def register_terminology_metric(name: str, *, supports_annotation_scope: bool = False):
     """Register a terminology metric under a stable symbolic name."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -126,6 +133,7 @@ def register_terminology_metric(name: str):
             raise ValueError(f"Terminology metric '{name}' is already registered.")
         logger.debug("Registering terminology metric '%s' from %s", name, func.__module__)
         wrapped = _wrap_with_logging("terminology metric", name, func)
+        setattr(wrapped, "supports_annotation_scope", supports_annotation_scope)
         TERMINOLOGY_METRICS[name] = wrapped
         return wrapped
 

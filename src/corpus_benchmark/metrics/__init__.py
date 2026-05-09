@@ -17,6 +17,9 @@ from corpus_benchmark.metrics.basic_counts import (
 )
 from corpus_benchmark.metrics.basic_stats import (
     passages_per_document_stats,
+    annotations_per_document_stats,
+    annotations_per_1000_tokens_stats,
+    unique_mentions_per_document_stats,
     unique_identifiers_per_document_stats,
     spans_per_annotation_stats,
     identifiers_per_annotation_stats,
@@ -77,6 +80,9 @@ __all__ = [
     "mention_token_count",
     "identifier_count",
     "passages_per_document_stats",
+    "annotations_per_document_stats",
+    "annotations_per_1000_tokens_stats",
+    "unique_mentions_per_document_stats",
     "unique_identifiers_per_document_stats",
     "spans_per_annotation_stats",
     "identifiers_per_annotation_stats",

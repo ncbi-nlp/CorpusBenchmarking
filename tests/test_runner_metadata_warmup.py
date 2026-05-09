@@ -6,6 +6,7 @@ from corpus_benchmark.context import BenchmarkContext, MetricTarget
 from corpus_benchmark.metrics import metadata_distribution  # noqa: F401
 from corpus_benchmark.models.corpus import CorpusSubset, Document
 from corpus_benchmark.registry import SUBSET_METRICS
+from corpus_benchmark.registry import CROSS_METRICS, TERMINOLOGY_METRICS
 from corpus_benchmark.runner import PlannedMetricExecution, _warm_metadata_cache
 
 
@@ -23,6 +24,14 @@ def test_metadata_distribution_metrics_declare_metadata_dependency() -> None:
     assert getattr(SUBSET_METRICS["journal_topic_distribution"], "requires_metadata") is True
     assert getattr(SUBSET_METRICS["journal_MeSH_topic_distribution"], "requires_metadata") is True
     assert getattr(SUBSET_METRICS["publication_year_distribution"], "requires_metadata") is True
+
+
+def test_scoped_metrics_declare_annotation_scope_support() -> None:
+    assert getattr(SUBSET_METRICS["label_distribution"], "supports_annotation_scope") is True
+    assert getattr(SUBSET_METRICS["annotations_per_document_stats"], "supports_annotation_scope") is True
+    assert getattr(CROSS_METRICS["mention_overlap"], "supports_annotation_scope") is True
+    assert getattr(TERMINOLOGY_METRICS["high_level_concept_counts"], "supports_annotation_scope") is True
+    assert not getattr(CROSS_METRICS["token_overlap"], "supports_annotation_scope", False)
 
 
 def test_warm_metadata_cache_populates_context_once_per_target() -> None:

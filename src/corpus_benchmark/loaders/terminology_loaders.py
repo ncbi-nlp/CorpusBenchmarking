@@ -3,6 +3,7 @@ import gzip
 import logging
 import pathlib
 import pickle
+import re
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Iterator, Set, Iterable, Any
 
@@ -111,6 +112,155 @@ def _parent_tree_number(tree_number: str) -> Optional[str]:
     return tree_number.rsplit(".", 1)[0]
 
 
+def _cache_path(terminology_dir: pathlib.Path, name: str) -> pathlib.Path:
+    return terminology_dir / f"{name}.pkl"
+
+
+def _load_cached(cache_path: pathlib.Path, name: str) -> TerminologyResource | None:
+    if not cache_path.exists():
+        return None
+    logger.info(f"Loading cached terminology {name} from {cache_path}")
+    with open(cache_path, "rb") as f:
+        return pickle.load(f)
+
+
+def _save_cached(cache_path: pathlib.Path, name: str, resource: TerminologyResource) -> None:
+    logger.info(f"Saving terminology {name} to {cache_path}")
+    with open(cache_path, "wb") as f:
+        pickle.dump(resource, f)
+
+
+def _ensure_resource_metadata(
+    resource: TerminologyResource,
+    *,
+    resource_aliases: List[str],
+    id_prefix: Optional[str] = None,
+) -> bool:
+    changed = False
+    if getattr(resource, "resource_aliases", None) != resource_aliases:
+        resource.resource_aliases = resource_aliases
+        changed = True
+    if getattr(resource, "id_prefix", None) != id_prefix:
+        resource.id_prefix = id_prefix
+        changed = True
+    return changed
+
+
+def _obo_unquote(value: str) -> str:
+    value = value.strip()
+    if value.startswith('"'):
+        match = re.match(r'"((?:[^"\\]|\\.)*)"', value)
+        if match:
+            return match.group(1).replace('\\"', '"')
+    return value
+
+
+def _iter_obo_terms(path: pathlib.Path) -> Iterator[dict[str, Any]]:
+    current: dict[str, Any] | None = None
+    with path.open("r", encoding="utf-8") as fp:
+        for raw_line in fp:
+            line = raw_line.strip()
+            if not line or line.startswith("!"):
+                continue
+            if line == "[Term]":
+                if current:
+                    yield current
+                current = {"alt_id": [], "synonym": [], "is_a": [], "is_obsolete": False}
+                continue
+            if line.startswith("["):
+                if current:
+                    yield current
+                current = None
+                continue
+            if current is None or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key == "id":
+                current["id"] = value.split(" ! ", 1)[0].strip()
+            elif key == "name":
+                current["name"] = value.split(" ! ", 1)[0].strip()
+            elif key == "alt_id":
+                current["alt_id"].append(value.split(" ! ", 1)[0].strip())
+            elif key == "synonym":
+                current["synonym"].append(_obo_unquote(value))
+            elif key == "is_a":
+                current["is_a"].append(value.split(" ! ", 1)[0].strip())
+            elif key == "is_obsolete":
+                current["is_obsolete"] = value.lower() == "true"
+        if current:
+            yield current
+
+
+@register_terminology_loader("obo")
+def load_obo(workspace_config: WorkspaceConfig, **params) -> TerminologyResource:
+    name = params["name"]
+    url = params.get("url")
+    path_param = params.get("path")
+    prefix = params.get("prefix")
+    resource_aliases = list(params.get("resource_aliases", [])) or [name]
+    include_obsolete = bool(params.get("include_obsolete", False))
+
+    terminology_dir = pathlib.Path(workspace_config.terminology_dir)
+    terminology_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = _cache_path(terminology_dir, name)
+    cached = _load_cached(cache_path, name)
+    if cached is not None:
+        if _ensure_resource_metadata(cached, resource_aliases=resource_aliases, id_prefix=prefix):
+            _save_cached(cache_path, name, cached)
+        return cached
+
+    if path_param:
+        obo_path = pathlib.Path(path_param)
+    else:
+        if not url:
+            raise ValueError("OBO terminology loader requires either params.path or params.url")
+        filename = pathlib.Path(url).name or f"{name}.obo"
+        obo_path = terminology_dir / filename
+        if not obo_path.exists():
+            logger.info(f"Downloading OBO terminology {url} -> {obo_path}")
+            download_file(url, obo_path)
+
+    concepts: Dict[str, TerminologyConcept] = {}
+    children_by_parent: Dict[str, List[str]] = collections.defaultdict(list)
+
+    logger.info(f"Parsing {obo_path}")
+    for term in _iter_obo_terms(obo_path):
+        if term.get("is_obsolete") and not include_obsolete:
+            continue
+        ui = term.get("id")
+        term_name = term.get("name")
+        if not ui or not term_name:
+            continue
+        parent_ids = [parent for parent in term.get("is_a", []) if parent]
+        concepts[ui] = TerminologyConcept(
+            ui=ui,
+            name=term_name,
+            synonyms=list(term.get("synonym", [])),
+            parent_ids=parent_ids,
+            alt_ids=list(term.get("alt_id", [])),
+        )
+        for parent_id in parent_ids:
+            children_by_parent[parent_id].append(ui)
+
+    child_ids = {child for children in children_by_parent.values() for child in children}
+    root_ids = sorted([ui for ui in concepts if ui not in child_ids])
+    tree_to_ids = {root_id: [root_id] for root_id in root_ids}
+    treetop_names = {root_id: concepts[root_id].name for root_id in root_ids}
+
+    resource = TerminologyResource(
+        name=name,
+        concepts=concepts,
+        tree_to_ids=tree_to_ids,
+        treetop_names=treetop_names,
+        resource_aliases=resource_aliases,
+        id_prefix=prefix,
+    )
+    _save_cached(cache_path, name, resource)
+    return resource
+
+
 @register_terminology_loader("mesh_xml")
 def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyResource:
     year = params.get("year", 2026)
@@ -119,16 +269,17 @@ def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyRes
     terminology_dir = pathlib.Path(workspace_config.terminology_dir)
     terminology_dir.mkdir(parents=True, exist_ok=True)
 
-    cache_path = terminology_dir / f"{name}.pkl"
-    if cache_path.exists():
-        logger.info(f"Loading cached terminology {name} from {cache_path}")
-        with open(cache_path, "rb") as f:
-            resource = pickle.load(f)
+    cache_path = _cache_path(terminology_dir, name)
+    cached = _load_cached(cache_path, name)
+    if cached is not None:
+        resource = cached
+        aliases = params.get("resource_aliases", ["MESH", "MeSH", "mesh"])
+        metadata_changed = _ensure_resource_metadata(resource, resource_aliases=aliases)
         repaired = _repair_mapped_ui_ids(resource)
         if repaired:
             logger.info("Normalized mapped MeSH UI IDs for %s cached concepts", repaired)
-            with open(cache_path, "wb") as f:
-                pickle.dump(resource, f)
+        if repaired or metadata_changed:
+            _save_cached(cache_path, name, resource)
         return resource
 
     logger.info(f"Building terminology {name}")
@@ -224,10 +375,14 @@ def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyRes
                 parent_ids.update(tree_to_ids.get(parent_tree, []))
         record.parent_ids = sorted(parent_ids)
 
-    resource = TerminologyResource(name=name, concepts=concepts, tree_to_ids=dict(tree_to_ids), treetop_names=TREETOP_NAMES)
+    resource = TerminologyResource(
+        name=name,
+        concepts=concepts,
+        tree_to_ids=dict(tree_to_ids),
+        treetop_names=TREETOP_NAMES,
+        resource_aliases=params.get("resource_aliases", ["MESH", "MeSH", "mesh"]),
+    )
 
-    logger.info(f"Saving terminology {name} to {cache_path}")
-    with open(cache_path, "wb") as f:
-        pickle.dump(resource, f)
+    _save_cached(cache_path, name, resource)
 
     return resource

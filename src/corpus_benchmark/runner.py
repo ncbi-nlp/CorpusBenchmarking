@@ -25,24 +25,6 @@ from corpus_benchmark.metadata.journal_metadata import create_journal_record_sto
 
 logger = logging.getLogger(__name__)
 
-SCOPED_SUBSET_METRICS = {
-    "label_distribution",
-    "identifier_resource_distribution",
-    "annotations_per_document_stats",
-    "annotations_per_1000_tokens_stats",
-    "unique_mentions_per_document_stats",
-    "unique_identifiers_per_document_stats",
-    "variation_degree_stats",
-    "ambiguity_degree_stats",
-}
-
-SCOPED_CROSS_METRICS = {
-    "mention_token_overlap",
-    "mention_overlap",
-    "identifier_overlap",
-}
-
-
 @dataclass(slots=True)
 class PlannedMetricExecution:
     metric_spec: Any
@@ -215,6 +197,10 @@ def _metric_requires_metadata(metric: Any) -> bool:
     return bool(getattr(metric, "requires_metadata", False))
 
 
+def _metric_supports_annotation_scope(metric: Any) -> bool:
+    return bool(getattr(metric, "supports_annotation_scope", False))
+
+
 def _load_entity_scope_filters(path: str | None) -> dict[str, AnnotationFilter]:
     if not path:
         return {}
@@ -248,14 +234,7 @@ def _attach_scoped_results(
     if not scoped_filters:
         return result
 
-    metric_name = execution.metric_spec.metric_name
-    if len(execution.targets) == 1:
-        if metric_name not in SCOPED_SUBSET_METRICS:
-            return result
-    elif len(execution.targets) == 2:
-        if metric_name not in SCOPED_CROSS_METRICS:
-            return result
-    else:
+    if not _metric_supports_annotation_scope(execution.metric):
         return result
 
     params = dict(execution.params)

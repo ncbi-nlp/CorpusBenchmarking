@@ -76,7 +76,7 @@ def passages_per_document_stats(target: MetricTarget, result_name: str) -> Subse
 # TODO Add tokens per mention
 
 
-@register_subset_metric("annotations_per_document_stats")
+@register_subset_metric("annotations_per_document_stats", supports_annotation_scope=True)
 def annotations_per_document_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -98,7 +98,7 @@ def annotations_per_document_stats(
     )
 
 
-@register_subset_metric("annotations_per_1000_tokens_stats")
+@register_subset_metric("annotations_per_1000_tokens_stats", supports_annotation_scope=True)
 def annotations_per_1000_tokens_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -118,7 +118,7 @@ def annotations_per_1000_tokens_stats(
     )
 
 
-@register_subset_metric("unique_mentions_per_document_stats")
+@register_subset_metric("unique_mentions_per_document_stats", supports_annotation_scope=True)
 def unique_mentions_per_document_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -139,7 +139,7 @@ def unique_mentions_per_document_stats(
     )
 
 
-@register_subset_metric("unique_identifiers_per_document_stats")
+@register_subset_metric("unique_identifiers_per_document_stats", supports_annotation_scope=True)
 def unique_identifiers_per_document_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -400,7 +400,7 @@ def identifier_redundancy_stats(
     )
 
 
-@register_subset_metric("variation_degree_stats")
+@register_subset_metric("variation_degree_stats", supports_annotation_scope=True)
 def variation_degree_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:
@@ -421,7 +421,7 @@ def variation_degree_stats(
     )
 
 
-@register_subset_metric("ambiguity_degree_stats")
+@register_subset_metric("ambiguity_degree_stats", supports_annotation_scope=True)
 def ambiguity_degree_stats(
     target: MetricTarget, result_name: str, annotation_filter_name: str | None = None
 ) -> SubsetMetricResult:

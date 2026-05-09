@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pickle
 
-from corpus_benchmark.loaders.terminology_loaders import load_mesh_xml
+from corpus_benchmark.loaders.terminology_loaders import load_mesh_xml, load_obo
 from corpus_benchmark.models.config import WorkspaceConfig
 from corpus_benchmark.models.terminologies import TerminologyConcept, TerminologyResource
 
@@ -75,3 +75,43 @@ def test_load_mesh_xml_repairs_cached_major_topic_markers(tmp_path) -> None:
     with cache_path.open("rb") as fh:
         repaired_cache = pickle.load(fh)
     assert repaired_cache.get_concept("C033273").mapped_ui_ids == ["D009652"]
+
+
+def test_load_obo_parses_terms_relationships_alt_ids_and_skips_obsolete(tmp_path) -> None:
+    obo_path = tmp_path / "mini.obo"
+    terminology_dir = tmp_path / "terminologies"
+    obo_path.write_text(
+        """format-version: 1.2
+
+[Term]
+id: TEST:0001
+name: root
+
+[Term]
+id: TEST:0002
+name: child
+alt_id: TEST:ALT2
+synonym: "child synonym" EXACT []
+is_a: TEST:0001 ! root
+
+[Term]
+id: TEST:0003
+name: obsolete
+is_obsolete: true
+""",
+        encoding="utf-8",
+    )
+
+    terminology = load_obo(
+        WorkspaceConfig(terminology_dir=str(terminology_dir)),
+        name="test_obo",
+        path=str(obo_path),
+        prefix="TEST",
+        resource_aliases=["TEST"],
+    )
+
+    assert terminology.get_concept("0002").name == "child"
+    assert terminology.get_concept("TEST:ALT2").ui == "TEST:0002"
+    assert terminology.get_concept("TEST:0003") is None
+    assert terminology.top_ancestor_ids("TEST:0002") == ["TEST:0001"]
+    assert terminology.depth_for_concept(terminology.get_concept("TEST:0002")) == 2
