@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from corpus_benchmark.models.filters import AnnotationFilter
+
 logger = logging.getLogger(__name__)
 
 APP_NAME_VER = "CorpusBenchmarking/0.1"
@@ -89,7 +91,7 @@ class MetricSpec:
 class BenchmarkConfig:
     name: str
     loader: LoaderSpec
-    annotation_filters: dict[str, dict[str, Any]] = field(default_factory=dict)
+    annotation_filters: dict[str, AnnotationFilter] = field(default_factory=dict)
     acquisition: AcquisitionSpec | None = None
     cache_filename: str | None = None
 

@@ -75,11 +75,7 @@ def read_docid_map(filename: str | Path) -> dict[str, str]:
 
             fields = line.split("\t")
             if len(fields) != 2:
-                raise ValueError(
-                    f"Expected exactly 2 tab-delimited columns on line "
-                    f'{line_index} of file "{path}" but got {len(fields)}: '
-                    f'"{line}"'
-                )
+                raise ValueError(f"Expected exactly 2 tab-delimited columns on line " f'{line_index} of file "{path}" but got {len(fields)}: ' f'"{line}"')
 
             docid_from, docid_to = fields
             docid_map[docid_from.strip()] = docid_to.strip()
@@ -215,10 +211,7 @@ class StandoffLoader(Loader):
         documents: list[Document] = []
         annotation_count = 0
 
-        file_paths = [
-            f for f in subset_path.glob("*.txt")
-            if not f.name.startswith(".")
-        ]
+        file_paths = [f for f in subset_path.glob("*.txt") if not f.name.startswith(".")]
         for text_path in sorted(file_paths):
             document_id = text_path.stem
             annotation_path = Path(path) / f"{document_id}.ann"
@@ -231,7 +224,7 @@ class StandoffLoader(Loader):
 
     def load_document(self, document_id, text_path, annotation_path) -> Document:
         try:
-            text = Path(text_path).read_text(encoding='utf-8')
+            text = Path(text_path).read_text(encoding="utf-8")
         except Exception as e:
             raise Exception(f"Unable to load document {text_path} due to {e}")
 
@@ -258,10 +251,7 @@ class StandoffLoader(Loader):
     def _annotation_span(annotation: Annotation) -> AnnotationSpan:
         """Return the single span for a simple standoff annotation."""
         if len(annotation.spans) != 1:
-            raise ValueError(
-                f"StandoffLoader expects exactly one span per annotation; "
-                f"annotation {annotation.mention_id!r} has {len(annotation.spans)}."
-            )
+            raise ValueError(f"StandoffLoader expects exactly one span per annotation; " f"annotation {annotation.mention_id!r} has {len(annotation.spans)}.")
         return annotation.spans[0]
 
     def verify_annotation_text(
@@ -304,11 +294,7 @@ class StandoffLoader(Loader):
 
                 fields = line.split("\t")
                 if len(fields) != 3:
-                    raise ValueError(
-                        f"Expected exactly 3 tab-delimited fields on line "
-                        f"{line_index} of standoff annotation file "
-                        f'{annotation_path}: "{line}"'
-                    )
+                    raise ValueError(f"Expected exactly 3 tab-delimited fields on line " f"{line_index} of standoff annotation file " f'{annotation_path}: "{line}"')
 
                 mention_id, span_descriptor, mention_text = fields
                 label, span_start, span_end = self.parse_span_descriptor(
@@ -351,34 +337,20 @@ class StandoffLoader(Loader):
         """
         fields = span_descriptor.split()
         if len(fields) != 3:
-            raise ValueError(
-                f"Expected exactly 3 space-delimited values in the center "
-                f"field on line {line_index} of standoff annotation file "
-                f'{annotation_path}: "{line}"'
-            )
+            raise ValueError(f"Expected exactly 3 space-delimited values in the center " f"field on line {line_index} of standoff annotation file " f'{annotation_path}: "{line}"')
 
         raw_label, raw_start, raw_end = fields
         if ";" in raw_start or ";" in raw_end:
-            raise ValueError(
-                f"Discontinuous spans are not supported by StandoffLoader "
-                f"(line {line_index} of {annotation_path}: {line!r})."
-            )
+            raise ValueError(f"Discontinuous spans are not supported by StandoffLoader " f"(line {line_index} of {annotation_path}: {line!r}).")
 
         try:
             span_start = int(raw_start)
             span_end = int(raw_end)
         except ValueError as exc:
-            raise ValueError(
-                f"Could not parse integer offsets on line {line_index} of "
-                f"standoff annotation file {annotation_path}: {line!r}"
-            ) from exc
+            raise ValueError(f"Could not parse integer offsets on line {line_index} of " f"standoff annotation file {annotation_path}: {line!r}") from exc
 
         if span_start < 0 or span_end <= span_start:
-            raise ValueError(
-                f"Invalid span [{span_start}, {span_end}) on line "
-                f"{line_index} of standoff annotation file {annotation_path}: "
-                f"{line!r}"
-            )
+            raise ValueError(f"Invalid span [{span_start}, {span_end}) on line " f"{line_index} of standoff annotation file {annotation_path}: " f"{line!r}")
 
         return self.get_label(raw_label), span_start, span_end
 
@@ -403,8 +375,9 @@ class JNLPBA_StandoffLoader(StandoffLoader):
         if not docid_mapped:
             raise ValueError(f"docid {docid} from filename_docid {filename_docid} not found in docid_map")
         ids = {DocumentIdentifierType.PMID: DocumentIdentifierType.PMID.normalize(docid_mapped)}
-        #logger.debug(f"TRACE ids for {docid} = {ids}")
+        # logger.debug(f"TRACE ids for {docid} = {ids}")
         return ids
+
 
 class AnatEM_StandoffLoader(StandoffLoader):
     def __init__(

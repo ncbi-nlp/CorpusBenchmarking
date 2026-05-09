@@ -4,7 +4,7 @@ import logging
 import pathlib
 import pickle
 import xml.etree.ElementTree as ET
-from typing import Dict, List, Optional, Iterator, Set, Iterable
+from typing import Dict, List, Optional, Iterator, Set, Iterable, Any
 
 from corpus_benchmark.models.config import WorkspaceConfig
 from corpus_benchmark.models.terminologies import TerminologyResource, TerminologyConcept
@@ -134,7 +134,7 @@ def load_mesh_xml(workspace_config: WorkspaceConfig, **params) -> TerminologyRes
     logger.info(f"Building terminology {name}")
 
     # Check for provided paths first
-    local_paths = {"descriptor": params.get("descriptor_path"), "supplemental": params.get("supplemental_path")}
+    local_paths: Dict[str, Any] = {"descriptor": params.get("descriptor_path"), "supplemental": params.get("supplemental_path")}
 
     # Download files if they don't exist and paths aren't provided
     base_url = "https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh"

@@ -136,9 +136,9 @@ def infer_bioid_type(identifier_list):
                 found += 1
                 handlers_found.add(handler)
         if found != 1:
-            print(f"WARN Identifier \"{identifier}\" matched {found} handlers")
+            logger.warning(f"Identifier \"{identifier}\" matched {found} handlers")
     if len(handlers_found) != 1:
-        print(f"WARN Identifier list \"{identifier_list}\" matched {len(handlers_found)} handlers")
+        logger.warning(f"Identifier list \"{identifier_list}\" matched {len(handlers_found)} handlers")
     if len(handlers_found) == 0:
         return None, None
     handlers_found = list(handlers_found)

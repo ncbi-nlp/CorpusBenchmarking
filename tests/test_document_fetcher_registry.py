@@ -9,7 +9,8 @@ from corpus_benchmark.builtins import register_builtins
 from corpus_benchmark.metadata.document_fetcher import DocumentMetadataFetcher
 from corpus_benchmark.metadata.eutils_journal_fetchers import ABBREVIATION, ISSN, NLM_UNIQUE_ID
 from corpus_benchmark.metadata.journal_fetcher import JournalMetadataFetcher
-from corpus_benchmark.metadata.json_record_store import JsonRecordStore, normalize_issn, normalize_nlm_unique_id
+from corpus_benchmark.metadata.json_record_store import JsonRecordStore
+from corpus_benchmark.metadata.normalizers import normalize_issn, normalize_nlm_unique_id
 from corpus_benchmark.models.config import BatteryConfig, LoaderSpec, MetricSpec, WorkspaceConfig
 from corpus_benchmark.models.corpus import Document, DocumentIdentifierType
 from corpus_benchmark.workspace import GlobalWorkspace
@@ -349,4 +350,3 @@ def test_workspace_adds_new_journal_identifiers_to_text_matched_record(tmp_path)
         "15292908",
         "15292916",
     ]
-

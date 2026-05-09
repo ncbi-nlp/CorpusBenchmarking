@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import collections
-from typing import Dict, Iterable
+from typing import Set, Dict, Iterable
 
 from corpus_benchmark.context import MetricTarget, get_identifiers
 from corpus_benchmark.models.terminologies import TerminologyResource
@@ -12,10 +12,19 @@ from corpus_benchmark.results import SubsetMetricResult
 logger = logging.getLogger(__name__)
 
 PRECISION = 8
+NOT_FOUND_LIMIT = 10
 
 # TODO make these metrics resource-aware: only do ID lookups in the associated terminology
 # TODO report IDs not found as <resource>:<accession>
 
+def _get_not_found_text(not_found: Set[str]):
+    not_found_list = list(not_found)[:NOT_FOUND_LIMIT]
+    not_found_texts = [f"\"{not_found_item}\"" for not_found_item in not_found_list]
+    not_found_text = ", ".join(not_found_texts)
+    if len(not_found_list) < len(not_found):
+        more_count = len(not_found) - len(not_found_list) 
+        not_found_text += f" ...(+{more_count} more)"
+    return not_found_text
 
 def _tree_depth(tree_number: str) -> int:
     return len(tree_number.split("."))
@@ -23,9 +32,11 @@ def _tree_depth(tree_number: str) -> int:
 
 def _count_by_branch(terminology: TerminologyResource, ids: Iterable[str]) -> Dict[str, float]:
     counts = collections.defaultdict(float)
+    not_found = set()
     for ui in ids:
         concepts = terminology.resolve_to_tree_concepts(ui)
         if not concepts:
+            not_found.add(ui)
             continue
         keys = []
         for concept in concepts:
@@ -36,14 +47,18 @@ def _count_by_branch(terminology: TerminologyResource, ids: Iterable[str]) -> Di
         weight = 1.0 / len(keys)
         for key in keys:
             counts[key] += weight
+    if len(not_found) > 0:
+        logger.warning("No concept found for: {}".format(_get_not_found_text(not_found)))
     return dict(sorted(counts.items()))
 
 
 def _count_by_depth(terminology: TerminologyResource, ids: Iterable[str]) -> Dict[int, float]:
     counts = collections.defaultdict(float)
+    not_found = set()
     for ui in ids:
         concepts = terminology.resolve_to_tree_concepts(ui)
         if not concepts:
+            not_found.add(ui)
             continue
         depths = [_tree_depth(tree) for concept in concepts for tree in concept.tree_numbers]
         if not depths:
@@ -51,6 +66,8 @@ def _count_by_depth(terminology: TerminologyResource, ids: Iterable[str]) -> Dic
         weight = 1.0 / len(depths)
         for depth in depths:
             counts[depth] += weight
+    if len(not_found) > 0:
+        logger.warning("No concept found for: {}".format(_get_not_found_text(not_found)))
     return dict(sorted(counts.items()))
 
 
