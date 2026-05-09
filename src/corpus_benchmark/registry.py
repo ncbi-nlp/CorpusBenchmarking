@@ -89,7 +89,7 @@ def register_document_fetcher(name: str):
     return decorator
 
 
-def register_subset_metric(name: str):
+def register_subset_metric(name: str, *, requires_metadata: bool = False):
     """Register a metric under a stable symbolic name."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -97,6 +97,7 @@ def register_subset_metric(name: str):
             raise ValueError(f"Metric '{name}' is already registered.")
         logger.debug("Registering subset metric '%s' from %s", name, func.__module__)
         wrapped = _wrap_with_logging("subset metric", name, func)
+        setattr(wrapped, "requires_metadata", requires_metadata)
         SUBSET_METRICS[name] = wrapped
         return wrapped
 

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
 
 from corpus_benchmark.builtins import register_builtins
-from corpus_benchmark.context import BenchmarkContext, MetricTarget
+from corpus_benchmark.context import BenchmarkContext, MetricTarget, get_metadata_for_target
 from corpus_benchmark.models.config import BatteryConfig, DatasetBundle, BenchmarkConfig
 from corpus_benchmark.models.corpus import BenchmarkCorpus, DocumentIdentifierType
 from corpus_benchmark.registry import (
@@ -20,6 +21,15 @@ from corpus_benchmark.metadata.json_record_store import JsonRecordStore
 from corpus_benchmark.metadata.journal_metadata import create_journal_record_store
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class PlannedMetricExecution:
+    metric_spec: Any
+    metric: Any
+    targets: tuple[MetricTarget, ...]
+    params: dict[str, Any] = field(default_factory=dict)
+    requires_metadata: bool = False
 
 
 def _resolve_bundle(bundle: DatasetBundle, corpora: dict, contexts: dict) -> MetricTarget:
@@ -94,6 +104,108 @@ def _create_document_record_store(document_store_filename: str) -> JsonRecordSto
     return document_store
 
 
+def _metric_requires_metadata(metric: Any) -> bool:
+    return bool(getattr(metric, "requires_metadata", False))
+
+
+def _resolve_terminology_metric_params(
+    metric_spec: Any,
+    workspace: GlobalWorkspace,
+) -> dict[str, Any]:
+    params = dict(getattr(metric_spec, "params", {}))
+    term_name = params.get("terminology_name")
+    if not term_name or term_name not in workspace.terminologies:
+        # Fallback to the first loaded terminology if only one exists
+        if len(workspace.terminologies) == 1:
+            term_name = list(workspace.terminologies.keys())[0]
+            terminology = workspace.terminologies[term_name]
+        else:
+            available = ", ".join(sorted(workspace.terminologies)) or "<none>"
+            raise ValueError(f"Metric {metric_spec.metric_name} requires a terminology_name param matching a loaded terminology. " f"Available terminologies: {available}")
+    else:
+        terminology = workspace.terminologies[term_name]
+
+    return {**params, "terminology": terminology}
+
+
+def _build_metric_plan(
+    battery_config: BatteryConfig,
+    corpora: dict[str, BenchmarkCorpus],
+    contexts: dict[str, BenchmarkContext],
+    workspace: GlobalWorkspace,
+) -> list[PlannedMetricExecution]:
+    planned_executions: list[PlannedMetricExecution] = []
+    for metric_spec in battery_config.metrics:
+        if not metric_spec.enabled:
+            continue
+
+        if metric_spec.metric_name in SUBSET_METRICS:
+            metric = SUBSET_METRICS[metric_spec.metric_name]
+            for bundle_name in metric_spec.target_bundles:
+                bundle = battery_config.bundles[bundle_name]
+                target = _resolve_bundle(bundle, corpora, contexts)
+                planned_executions.append(
+                    PlannedMetricExecution(
+                        metric_spec=metric_spec,
+                        metric=metric,
+                        targets=(target,),
+                        params=dict(getattr(metric_spec, "params", {})),
+                        requires_metadata=_metric_requires_metadata(metric),
+                    )
+                )
+        elif metric_spec.metric_name in CROSS_METRICS:
+            metric = CROSS_METRICS[metric_spec.metric_name]
+            suite = battery_config.comparison_suites[metric_spec.comparison_suite]
+            for bundle1_name, bundle2_name in suite.bundle_pairs:
+                bundle1 = battery_config.bundles[bundle1_name]
+                bundle2 = battery_config.bundles[bundle2_name]
+                target1 = _resolve_bundle(bundle1, corpora, contexts)
+                target2 = _resolve_bundle(bundle2, corpora, contexts)
+                planned_executions.append(
+                    PlannedMetricExecution(
+                        metric_spec=metric_spec,
+                        metric=metric,
+                        targets=(target1, target2),
+                        params=dict(getattr(metric_spec, "params", {})),
+                    )
+                )
+        elif metric_spec.metric_name in TERMINOLOGY_METRICS:
+            metric = TERMINOLOGY_METRICS[metric_spec.metric_name]
+            params = _resolve_terminology_metric_params(metric_spec, workspace)
+            for bundle_name in metric_spec.target_bundles:
+                bundle = battery_config.bundles[bundle_name]
+                target = _resolve_bundle(bundle, corpora, contexts)
+                planned_executions.append(
+                    PlannedMetricExecution(
+                        metric_spec=metric_spec,
+                        metric=metric,
+                        targets=(target,),
+                        params=params,
+                    )
+                )
+        else:
+            available_metrics = []
+            available_metrics.extend(SUBSET_METRICS)
+            available_metrics.extend(CROSS_METRICS)
+            available_metrics.extend(TERMINOLOGY_METRICS)
+            available = ", ".join(sorted(available_metrics)) or "<none>"
+            raise ValueError(f"Unknown metric '{metric_spec.metric_name}'. Available metrics: {available}")
+    return planned_executions
+
+
+def _warm_metadata_cache(planned_executions: list[PlannedMetricExecution]) -> None:
+    warmed_targets: set[str] = set()
+    for execution in planned_executions:
+        if not execution.requires_metadata:
+            continue
+        target = execution.targets[0]
+        if target.name in warmed_targets:
+            continue
+        logger.info("Warming metadata cache for %s", target.name)
+        get_metadata_for_target(target)
+        warmed_targets.add(target.name)
+
+
 def run_benchmark(battery_config: BatteryConfig) -> list[Any]:
     register_builtins()
     battery_config.validate()
@@ -138,104 +250,25 @@ def run_benchmark(battery_config: BatteryConfig) -> list[Any]:
             annotation_filters=benchmark_config.annotation_filters,
         )
 
-    # TODO: pre-cache any necessary document metadata
-    # TODO: pre-cache any necessary journal metadata
-
-    # Run metrics
     logger.info(
         "Metrics configured: %s",
         [metric_spec.metric_name for metric_spec in battery_config.metrics],
     )
+    planned_executions = _build_metric_plan(battery_config, corpora, contexts, workspace)
+    _warm_metadata_cache(planned_executions)
+
+    # Run metrics
     results: list[Any] = []
-    for metric_spec in battery_config.metrics:
-        if not metric_spec.enabled:
-            continue
-
+    for execution in planned_executions:
+        metric_spec = execution.metric_spec
         logger.info("Calculating metric %s", metric_spec.result_name)
-        if metric_spec.metric_name in SUBSET_METRICS:
-            metric = SUBSET_METRICS[metric_spec.metric_name]
-            for bundle_name in metric_spec.target_bundles:
-                logger.debug(
-                    "Calculating metric %s on bundle %s",
-                    metric_spec.result_name,
-                    bundle_name,
-                )
-                bundle = battery_config.bundles[bundle_name]
-                target = _resolve_bundle(bundle, corpora, contexts)
-                logger.debug("... bundle resolved")
-
-                # Execute metric
-                result = metric(
-                    target,
-                    metric_spec.result_name,
-                    **getattr(metric_spec, "params", {}),
-                )
-                logger.debug("... metric calculated")
-                results.append(result)
-        elif metric_spec.metric_name in CROSS_METRICS:
-            metric = CROSS_METRICS[metric_spec.metric_name]
-            suite = battery_config.comparison_suites[metric_spec.comparison_suite]
-            for bundle1_name, bundle2_name in suite.bundle_pairs:
-                logger.debug(
-                    "Calculating metric %s on bundles %s and %s",
-                    metric_spec.result_name,
-                    bundle1_name,
-                    bundle2_name,
-                )
-                bundle1 = battery_config.bundles[bundle1_name]
-                bundle2 = battery_config.bundles[bundle2_name]
-                target1 = _resolve_bundle(bundle1, corpora, contexts)
-                target2 = _resolve_bundle(bundle2, corpora, contexts)
-                logger.debug("... bundles resolved")
-
-                # Execute cross-metric (requires metrics designed for two targets)
-                result = metric(
-                    target1,
-                    target2,
-                    metric_spec.result_name,
-                    **getattr(metric_spec, "params", {}),
-                )
-                logger.debug("... metric calculated")
-                results.append(result)
-        elif metric_spec.metric_name in TERMINOLOGY_METRICS:
-            metric = TERMINOLOGY_METRICS[metric_spec.metric_name]
-            params = getattr(metric_spec, "params", {})
-            term_name = params.get("terminology_name")
-            if not term_name or term_name not in workspace.terminologies:
-                # Fallback to the first loaded terminology if only one exists
-                if len(workspace.terminologies) == 1:
-                    term_name = list(workspace.terminologies.keys())[0]
-                    terminology = workspace.terminologies[term_name]
-                else:
-                    available = ", ".join(sorted(workspace.terminologies)) or "<none>"
-                    raise ValueError(f"Metric {metric_spec.metric_name} requires a terminology_name param matching a loaded terminology. " f"Available terminologies: {available}")
-            else:
-                terminology = workspace.terminologies[term_name]
-
-            for bundle_name in metric_spec.target_bundles:
-                logger.debug(
-                    "Calculating metric %s on bundle %s",
-                    metric_spec.result_name,
-                    bundle_name,
-                )
-                bundle = battery_config.bundles[bundle_name]
-                target = _resolve_bundle(bundle, corpora, contexts)
-                logger.debug("... bundle resolved")
-                result = metric(
-                    target,
-                    metric_spec.result_name,
-                    terminology=terminology,
-                    **params,
-                )
-                logger.debug("... metric calculated")
-                results.append(result)
-        else:
-            available_metrics = []
-            available_metrics.extend(SUBSET_METRICS)
-            available_metrics.extend(CROSS_METRICS)
-            available_metrics.extend(TERMINOLOGY_METRICS)
-            available = ", ".join(sorted(available_metrics)) or "<none>"
-            raise ValueError(f"Unknown metric '{metric_spec.metric_name}'. Available metrics: {available}")
+        result = execution.metric(
+            *execution.targets,
+            metric_spec.result_name,
+            **execution.params,
+        )
+        logger.debug("... metric calculated")
+        results.append(result)
 
     document_store.save()
     journal_record_store.save()

@@ -36,7 +36,7 @@ def _add_weighted_counts(
         target[name] += count
 
 
-@register_subset_metric("journal_distribution")
+@register_subset_metric("journal_distribution", requires_metadata=True)
 def journal_distribution(target: MetricTarget, result_name: str) -> SubsetMetricResult:
     metadata = get_metadata_for_target(target)
 
@@ -55,7 +55,7 @@ def journal_distribution(target: MetricTarget, result_name: str) -> SubsetMetric
     )
 
 
-@register_subset_metric("journal_topic_distribution")
+@register_subset_metric("journal_topic_distribution", requires_metadata=True)
 def journal_topic_distribution(target: MetricTarget, result_name: str, terminology_name: str = "mesh") -> SubsetMetricResult:
     workspace = get_workspace(target)
     terminology = _get_terminology(workspace.terminologies, terminology_name)
@@ -86,7 +86,7 @@ def journal_topic_distribution(target: MetricTarget, result_name: str, terminolo
     )
 
 
-@register_subset_metric("journal_MeSH_topic_distribution")
+@register_subset_metric("journal_MeSH_topic_distribution", requires_metadata=True)
 def journal_MeSH_topic_distribution(
     target: MetricTarget,
     result_name: str,
@@ -227,7 +227,7 @@ def _mesh_topic_treetop_names(terminology: TerminologyResource, mesh_topic_name:
     return sorted(treetop_names)
 
 
-@register_subset_metric("publication_year_distribution")
+@register_subset_metric("publication_year_distribution", requires_metadata=True)
 def publication_year_distribution(target: MetricTarget, result_name: str) -> SubsetMetricResult:
     metadata = get_metadata_for_target(target)
 
