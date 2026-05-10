@@ -2000,7 +2000,8 @@ def build_terminology_panels(term_data):
   }}
   function updateBar(id, config) {{
     const canvas = document.getElementById(id);
-    if (!canvas || !config || !config.labels || !config.labels.length) return false;
+    const labels = config && config.data && config.data.labels;
+    if (!canvas || !labels || !labels.length) return false;
     if (charts[id]) charts[id].destroy();
     charts[id] = new Chart(canvas, config);
     return true;

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from corpus_benchmark.dashboard import PALETTE, _entity_profile_data
+from corpus_benchmark.dashboard import PALETTE, _entity_profile_data, build_terminology_panels
 
 
 def _corpus(
@@ -132,3 +132,50 @@ def test_entity_profile_data_uses_nested_scoped_metrics() -> None:
     assert profiles["disease"]["amb"]["labels"] == ["Mixed"]
     assert profiles["disease"]["amb"]["data"] == [1.25]
     assert profiles["disease"]["variation"]["data"] == [3.5]
+
+
+def test_terminology_panel_chart_helper_uses_chartjs_config_labels() -> None:
+    _, panels = build_terminology_panels(
+        {
+            "Example": {
+                "by_scope": {
+                    "all": [
+                            {
+                                "corpus": "Example",
+                                "display_name": "Example",
+                                "terminology": "mesh",
+                                "terminology_label": "MeSH",
+                                "series_label": "Example / mesh",
+                                "n_input_ids": 1,
+                                "n_missing_ids": 0,
+                                "n_unique_missing_ids": 0,
+                                "unique_missing": 0,
+                                "missing_pct": 0.0,
+                                "coverage_pct": 100.0,
+                                "mean_depth": "1.00",
+                            "high_level": [
+                                {
+                                    "branch_code": "D000001",
+                                    "label": "Root",
+                                    "count": 1,
+                                    "terminology_total_count": 10,
+                                    "proportion": 0.1,
+                                }
+                            ],
+                            "depth": [
+                                {
+                                    "depth": 1,
+                                    "count": 1,
+                                    "terminology_total_count": 10,
+                                    "proportion": 0.1,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+    assert "const labels = config && config.data && config.data.labels;" in panels
+    assert "!config.labels" not in panels
