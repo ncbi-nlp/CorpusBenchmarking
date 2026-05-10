@@ -2,6 +2,8 @@ set -e
 
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 
+# TODO convert this to run as one python program
+
 # Calculate corpus metrics
 python -u src/corpus_benchmark/cli.py configs/basic_corpus_stats.yaml 
 python -u src/corpus_benchmark/cli.py configs/overlap_stats.yaml 
