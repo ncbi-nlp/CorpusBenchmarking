@@ -12,10 +12,11 @@ from typing import Dict, List, Optional
 import yaml
 
 logger = logging.getLogger(__name__)
-_NAME_INDEX_CACHE: Dict[int, tuple[int, Dict[str, List[str]]]] = {}
-_ID_INDEX_CACHE: Dict[int, tuple[int, Dict[str, str]]] = {}
-_DEPTH_CACHE: Dict[int, tuple[int, Dict[str, int]]] = {}
-_TOP_ANCESTOR_CACHE: Dict[int, tuple[int, Dict[str, List[str]]]] = {}
+_TerminologyCacheSignature = tuple[int, int]
+_NAME_INDEX_CACHE: Dict[int, tuple[_TerminologyCacheSignature, Dict[str, List[str]]]] = {}
+_ID_INDEX_CACHE: Dict[int, tuple[_TerminologyCacheSignature, Dict[str, str]]] = {}
+_DEPTH_CACHE: Dict[int, tuple[_TerminologyCacheSignature, Dict[str, int]]] = {}
+_TOP_ANCESTOR_CACHE: Dict[int, tuple[_TerminologyCacheSignature, Dict[str, List[str]]]] = {}
 _GLOBAL_BRANCH_COUNT_CACHE: Dict[int, tuple[int, Dict[str, float]]] = {}
 _GLOBAL_DEPTH_COUNT_CACHE: Dict[int, tuple[int, Dict[int, float]]] = {}
 NOT_FOUND_LIMIT = 10
@@ -53,6 +54,9 @@ class TerminologyResource:
     @property
     def prefix(self) -> Optional[str]:
         return getattr(self, "id_prefix", None)
+
+    def _cache_signature(self) -> _TerminologyCacheSignature:
+        return (len(self.concepts), id(self.concepts))
 
     @staticmethod
     def normalize_identifier(ui: str | None) -> str | None:
@@ -99,9 +103,9 @@ class TerminologyResource:
 
     def _id_index(self) -> Dict[str, str]:
         cache_key = id(self)
-        concept_count = len(self.concepts)
+        signature = self._cache_signature()
         cached = _ID_INDEX_CACHE.get(cache_key)
-        if cached is not None and cached[0] == concept_count:
+        if cached is not None and cached[0] == signature:
             return cached[1]
 
         index: Dict[str, str] = {}
@@ -110,7 +114,7 @@ class TerminologyResource:
             for candidate in ids:
                 for normalized_candidate in self._candidate_ids(candidate):
                     index[normalized_candidate] = concept.ui
-        _ID_INDEX_CACHE[cache_key] = (concept_count, index)
+        _ID_INDEX_CACHE[cache_key] = (signature, index)
         return index
 
     @staticmethod
@@ -119,15 +123,15 @@ class TerminologyResource:
 
     def _name_index(self) -> Dict[str, List[str]]:
         cache_key = id(self)
-        concept_count = len(self.concepts)
+        signature = self._cache_signature()
         cached = _NAME_INDEX_CACHE.get(cache_key)
-        if cached is not None and cached[0] == concept_count:
+        if cached is not None and cached[0] == signature:
             return cached[1]
 
         index: Dict[str, List[str]] = {}
         for concept in self.concepts.values():
             index.setdefault(self._normalize_name(concept.name), []).append(concept.ui)
-        _NAME_INDEX_CACHE[cache_key] = (concept_count, index)
+        _NAME_INDEX_CACHE[cache_key] = (signature, index)
         return index
 
     def get_concept_ids_by_name(self, name: str) -> List[str]:
@@ -157,10 +161,10 @@ class TerminologyResource:
 
     def depth_for_concept(self, concept: TerminologyConcept) -> int:
         cache_key = id(self)
-        concept_count = len(self.concepts)
+        signature = self._cache_signature()
         cached = _DEPTH_CACHE.get(cache_key)
-        if cached is None or cached[0] != concept_count:
-            cached = (concept_count, {})
+        if cached is None or cached[0] != signature:
+            cached = (signature, {})
             _DEPTH_CACHE[cache_key] = cached
         depth_cache = cached[1]
         if concept.ui not in depth_cache:
@@ -187,10 +191,10 @@ class TerminologyResource:
 
     def top_ancestor_ids(self, ui: str) -> List[str]:
         cache_key = id(self)
-        concept_count = len(self.concepts)
+        signature = self._cache_signature()
         cached = _TOP_ANCESTOR_CACHE.get(cache_key)
-        if cached is None or cached[0] != concept_count:
-            cached = (concept_count, {})
+        if cached is None or cached[0] != signature:
+            cached = (signature, {})
             _TOP_ANCESTOR_CACHE[cache_key] = cached
         ancestor_cache = cached[1]
         normalized = self.normalize_identifier(ui) or ui
@@ -261,13 +265,21 @@ class TerminologyTopicAnchorCounter:
     ) -> None:
         self.terminology = terminology
         self.anchor_labels = self._build_anchor_labels(anchor_ids)
+        self.configured_anchor_topics = self._build_configured_anchor_topics(anchor_ids, term_overrides or {})
         self.term_concept_overrides = self._build_term_concept_overrides(term_overrides or {})
+        self.term_tree_overrides = self._build_term_tree_overrides(self.term_concept_overrides)
+        self.term_tree_override_index = self._build_term_tree_override_index(self.term_tree_overrides)
         self.fallback_name_topics = {
             name: list(topics)
             for name, topics in (fallback_name_topics or {}).items()
         }
         self.topic_id_cache: dict[str, dict[str, float]] = {}
         self.topic_name_cache: dict[str, dict[str, float]] = {}
+        self.global_anchor_counts_cache: tuple[int, Dict[str, float]] | None = None
+
+    @property
+    def has_configured_anchors(self) -> bool:
+        return bool(self.anchor_labels or self.term_concept_overrides)
 
     def _build_anchor_labels(
         self,
@@ -291,12 +303,55 @@ class TerminologyTopicAnchorCounter:
             labels[normalized_id] = label or (concept.name if concept is not None else normalized_id)
         return labels
 
+    def _build_configured_anchor_topics(
+        self,
+        anchor_ids: Mapping[str, str] | Sequence[str] | None,
+        term_overrides: Mapping[str, str],
+    ) -> list[str]:
+        topics: list[str] = []
+        for topic in term_overrides.values():
+            if topic not in topics:
+                topics.append(topic)
+        if isinstance(anchor_ids, Mapping):
+            for anchor_id, label in anchor_ids.items():
+                concept = self.terminology.get_concept(anchor_id)
+                topic = label or (concept.name if concept is not None else self.terminology.normalize_identifier(anchor_id))
+                if topic and topic not in topics:
+                    topics.append(topic)
+        return topics
+
     def _build_term_concept_overrides(self, term_overrides: Mapping[str, str]) -> dict[str, str]:
         concept_overrides: dict[str, str] = {}
         for term, topic in term_overrides.items():
             for concept_id in self.terminology.get_concept_ids_by_name(term):
                 concept_overrides[concept_id] = topic
         return concept_overrides
+
+    def _build_term_tree_overrides(self, concept_overrides: Mapping[str, str]) -> list[tuple[str, str]]:
+        tree_overrides: list[tuple[str, str]] = []
+        for concept_id, topic in concept_overrides.items():
+            concept = self.terminology.get_concept(concept_id)
+            if concept is None:
+                continue
+            for tree_number in concept.tree_numbers:
+                tree_overrides.append((tree_number, topic))
+        return sorted(tree_overrides, key=lambda item: len(item[0]), reverse=True)
+
+    def _build_term_tree_override_index(self, tree_overrides: Sequence[tuple[str, str]]) -> dict[str, list[str]]:
+        index: dict[str, list[str]] = {}
+        for tree_number, topic in tree_overrides:
+            index.setdefault(tree_number, []).append(topic)
+        return index
+
+    def _matching_tree_override_topics(self, tree_number: str) -> list[str]:
+        topics: list[str] = []
+        current = tree_number
+        while current:
+            topics.extend(self.term_tree_override_index.get(current, []))
+            if "." not in current:
+                break
+            current = current.rsplit(".", 1)[0]
+        return topics
 
     def counts_for_record_topics(
         self,
@@ -338,6 +393,9 @@ class TerminologyTopicAnchorCounter:
         self.topic_name_cache[topic_name] = counts
         return counts
 
+    def concept_anchor_counts(self, concept_id: str) -> dict[str, float]:
+        return self._topic_anchor_counts_by_id(concept_id, set())
+
     def fallback_topic_counts(self, record_name: str) -> dict[str, float]:
         topics = self.fallback_name_topics.get(record_name, [])
         if not topics:
@@ -371,6 +429,25 @@ class TerminologyTopicAnchorCounter:
             self.topic_id_cache[cache_key] = {}
             return self.topic_id_cache[cache_key]
 
+        tree_numbers = getattr(concept, "tree_numbers", [])
+        if tree_numbers and self.term_tree_overrides:
+            tree_counts: dict[str, float] = {}
+            matched_tree_count = 0
+            for tree_number in tree_numbers:
+                matching_topics = self._matching_tree_override_topics(tree_number)
+                if matching_topics:
+                    matched_tree_count += 1
+                    topic_weight = 1.0 / len(matching_topics)
+                    for topic in matching_topics:
+                        tree_counts[topic] = tree_counts.get(topic, 0.0) + topic_weight
+            if tree_counts:
+                tree_weight = 1.0 / matched_tree_count
+                self.topic_id_cache[cache_key] = {
+                    topic: count * tree_weight
+                    for topic, count in tree_counts.items()
+                }
+                return self.topic_id_cache[cache_key]
+
         active.add(cache_key)
         parent_ids = _topic_parent_ids(concept)
         if parent_ids:
@@ -380,7 +457,7 @@ class TerminologyTopicAnchorCounter:
                 parent_counts = self._topic_anchor_counts_by_id(parent_id, active)
                 _add_weighted_counts(counts, parent_counts, parent_weight)
         else:
-            counts = {concept.name: 1.0}
+            counts = {} if self.has_configured_anchors else {concept.name: 1.0}
         active.remove(cache_key)
 
         self.topic_id_cache[cache_key] = counts
@@ -408,6 +485,44 @@ class TerminologyTopicAnchorCounter:
             logger.warning("No concept found for: {}".format(_get_not_found_text(not_found)))
         return dict(sorted(counts.items()))
 
+    def count_by_anchor(self, ids: Iterable[str]) -> Dict[str, float]:
+        counts = collections.defaultdict(float)
+        not_found: set[str] = set()
+        for ui in ids:
+            concepts = self.terminology.resolve_to_tree_concepts(ui)
+            if not concepts:
+                not_found.add(ui)
+                continue
+            concept_weight = 1.0 / len(concepts)
+            for concept in concepts:
+                anchor_counts = self._topic_anchor_counts_by_id(concept.ui, set())
+                _add_weighted_counts(counts, anchor_counts, concept_weight)
+        if len(not_found) > 0:
+            logger.warning("No concept found for: {}".format(_get_not_found_text(not_found)))
+        return dict(sorted(counts.items()))
+
+    def _anchor_counts_by_tree_overrides(self, concepts: Iterable[TerminologyConcept]) -> Dict[str, float]:
+        counts = collections.defaultdict(float)
+        for concept in concepts:
+            tree_numbers = getattr(concept, "tree_numbers", [])
+            if not tree_numbers:
+                continue
+            tree_counts: dict[str, float] = {}
+            matched_tree_count = 0
+            for tree_number in tree_numbers:
+                matching_topics = self._matching_tree_override_topics(tree_number)
+                if matching_topics:
+                    matched_tree_count += 1
+                    topic_weight = 1.0 / len(matching_topics)
+                    for topic in matching_topics:
+                        tree_counts[topic] = tree_counts.get(topic, 0.0) + topic_weight
+            if not tree_counts:
+                continue
+            tree_weight = 1.0 / matched_tree_count
+            for topic, count in tree_counts.items():
+                counts[topic] += count * tree_weight
+        return dict(sorted(counts.items()))
+
     def count_by_depth(self, ids: Iterable[str]) -> Dict[int, float]:
         counts = collections.defaultdict(float)
         not_found: set[str] = set()
@@ -433,6 +548,23 @@ class TerminologyTopicAnchorCounter:
         target_ids = [c.ui for c in self.terminology.concepts.values()]
         counts = self.count_by_branch(target_ids)
         _GLOBAL_BRANCH_COUNT_CACHE[cache_key] = (concept_count, counts)
+        return counts
+
+    def get_global_counts_by_anchor(self) -> Dict[str, float]:
+        concept_count = len(self.terminology.concepts)
+        if self.global_anchor_counts_cache is not None and self.global_anchor_counts_cache[0] == concept_count:
+            return self.global_anchor_counts_cache[1]
+        if self.term_tree_overrides:
+            tree_concepts = (
+                tree_concept
+                for concept in self.terminology.concepts.values()
+                for tree_concept in self.terminology.resolve_to_tree_concepts(concept.ui)
+            )
+            counts = self._anchor_counts_by_tree_overrides(tree_concepts)
+        else:
+            target_ids = [c.ui for c in self.terminology.concepts.values()]
+            counts = self.count_by_anchor(target_ids)
+        self.global_anchor_counts_cache = (concept_count, counts)
         return counts
 
     def get_global_counts_by_depth(self) -> Dict[int, float]:

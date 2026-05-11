@@ -83,7 +83,11 @@ metrics:
   - result_name: mesh_high_level_concept_counts
     metric_name: high_level_concept_counts
     target_bundles: &terminology_bundles ["BC5CDR_corpus", "BioID_corpus", "CRAFT_corpus", "CellLink_corpus", "NCBI_Disease_corpus", "NLM_Chem_corpus"]
-    params: {terminology_name: mesh}
+    params:
+      terminology_name: mesh
+      term_override_paths_by_entity_scope:
+        disease: configs/MeSH_disease_mappings.yaml
+        chemical: configs/MeSH_chemical_mappings.yaml
   - result_name: mesh_concept_depth_counts
     metric_name: concept_depth_counts
     target_bundles: *terminology_bundles
@@ -91,7 +95,10 @@ metrics:
   - result_name: cell_ontology_high_level_concept_counts
     metric_name: high_level_concept_counts
     target_bundles: *terminology_bundles
-    params: {terminology_name: cell_ontology}
+    params:
+      terminology_name: cell_ontology
+      term_override_paths_by_entity_scope:
+        cell: configs/cell_ontology_mappings.yaml
   - result_name: cell_ontology_concept_depth_counts
     metric_name: concept_depth_counts
     target_bundles: *terminology_bundles

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from corpus_benchmark.context import BenchmarkContext, MetricTarget
 from corpus_benchmark.metrics.terminology_coverage import high_level_concept_counts
 from corpus_benchmark.models.corpus import Annotation, AnnotationSpan, CorpusSubset, Document, IdentifierLink, Passage
@@ -29,6 +31,23 @@ def _target() -> MetricTarget:
     context = BenchmarkContext(
         workspace=object(),
         annotation_filters={"cell": AnnotationFilter(labels={"Cell"})},
+    )
+    return MetricTarget("Example_corpus", [(subset, context)])
+
+
+def _target_for_link(identifier: str, resource: str, label: str = "Entity") -> MetricTarget:
+    annotation = Annotation(
+        mention_id="a1",
+        text="entity",
+        spans=[AnnotationSpan(0, 6)],
+        label=label,
+        link=IdentifierLink(identifier=identifier, resource=resource),
+    )
+    passage = Passage("p1", "entity", 0, [annotation])
+    subset = CorpusSubset("train", [Document("doc1", [passage])])
+    context = BenchmarkContext(
+        workspace=object(),
+        annotation_filters={"entity": AnnotationFilter(labels={label})},
     )
     return MetricTarget("Example_corpus", [(subset, context)])
 
@@ -74,3 +93,62 @@ def test_terminology_topic_anchor_counter_uses_configured_anchor_ids() -> None:
     counter = TerminologyTopicAnchorCounter(terminology, anchor_ids={"A1": "Broad A"})
 
     assert counter.topic_anchor_counts("Term One") == {"Broad A": 1.0}
+
+
+def test_high_level_concept_counts_uses_configured_term_overrides(tmp_path: Path) -> None:
+    terminology = TerminologyResource(
+        name="example",
+        concepts={
+            "R1": TerminologyConcept(ui="R1", name="Root A"),
+            "A1": TerminologyConcept(ui="A1", name="Anchor A", parent_ids=["R1"]),
+            "T1": TerminologyConcept(ui="T1", name="Term One", parent_ids=["A1"]),
+        },
+        resource_aliases=["EX"],
+    )
+    mapping_path = tmp_path / "mappings.yaml"
+    mapping_path.write_text("Broad A:\n- Anchor A\n", encoding="utf-8")
+
+    result = high_level_concept_counts(
+        _target_for_link("T1", "EX"),
+        "high_level_concept_counts",
+        terminology,
+        term_overrides_path=str(mapping_path),
+    )
+
+    assert result.value[0]["branch_code"] == "Broad A"
+    assert result.value[0]["label"] == "Broad A"
+    assert result.details["term_overrides_path"] == str(mapping_path)
+
+
+def test_high_level_concept_counts_selects_scope_specific_term_overrides(tmp_path: Path) -> None:
+    terminology = TerminologyResource(
+        name="example",
+        concepts={
+            "R1": TerminologyConcept(ui="R1", name="Root A"),
+            "A1": TerminologyConcept(ui="A1", name="Anchor A", parent_ids=["R1"]),
+            "T1": TerminologyConcept(ui="T1", name="Term One", parent_ids=["A1"]),
+        },
+        resource_aliases=["EX"],
+    )
+    mapping_path = tmp_path / "entity_mappings.yaml"
+    mapping_path.write_text("Broad A:\n- Anchor A\n", encoding="utf-8")
+    target = _target_for_link("T1", "EX")
+
+    unscoped = high_level_concept_counts(
+        target,
+        "high_level_concept_counts",
+        terminology,
+        term_override_paths_by_entity_scope={"entity": str(mapping_path)},
+    )
+    scoped = high_level_concept_counts(
+        target,
+        "high_level_concept_counts",
+        terminology,
+        annotation_filter_name="entity",
+        term_override_paths_by_entity_scope={"entity": str(mapping_path)},
+    )
+
+    assert unscoped.value[0]["branch_code"] == "R1"
+    assert unscoped.details["term_overrides_path"] is None
+    assert scoped.value[0]["branch_code"] == "Broad A"
+    assert scoped.details["term_overrides_path"] == str(mapping_path)

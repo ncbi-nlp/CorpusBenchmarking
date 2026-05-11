@@ -178,4 +178,8 @@ def test_terminology_panel_chart_helper_uses_chartjs_config_labels() -> None:
     )
 
     assert "const labels = config && config.data && config.data.labels;" in panels
+    assert "termDepthCharts" in panels
+    assert "termRecallCharts" in panels
+    assert "tmc3_${i}" in panels
+    assert "tmc4_${i}" in panels
     assert "!config.labels" not in panels

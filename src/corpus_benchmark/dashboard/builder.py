@@ -741,13 +741,27 @@ def _terminology_profiles(term_data):
     for corpus_data in term_data.values():
         scopes.update((corpus_data.get("by_scope") or {}).keys())
     profiles = {}
-    for scope in sorted(scopes):
-        entries = [
+    entries_by_scope = {
+        scope: [
             entry
             for corpus_data in term_data.values()
             for entry in (corpus_data.get("by_scope") or {}).get(scope, [])
             if entry.get("n_input_ids", 0) > 0
         ]
+        for scope in scopes
+    }
+    for scope in sorted(scopes):
+        entries = entries_by_scope.get(scope, [])
+        chart_entries = entries
+        if scope == "all":
+            scoped_entries = [
+                entry
+                for scope_key, scope_entries in entries_by_scope.items()
+                if scope_key != "all"
+                for entry in scope_entries
+            ]
+            if scoped_entries:
+                chart_entries = scoped_entries
         labels = [entry["series_label"] for entry in entries]
         colors = [PALETTE[i % len(PALETTE)] for i in range(len(entries))]
         table_rows = "".join(
@@ -764,67 +778,94 @@ def _terminology_profiles(term_data):
         if not table_rows:
             table_rows = "<tr><td class='l' colspan='6'>No terminology data for this entity scope.</td></tr>"
 
-        depth_labels = sorted(
-            {
-                int(depth)
-                for entry in entries
-                for depth in entry.get("depth", {})
-                if str(depth).isdigit()
-            }
-        )
-        depth_datasets = []
-        for i, entry in enumerate(entries):
-            depth_datasets.append(
+        entries_by_group = {}
+        for entry in chart_entries:
+            group_key = (entry.get("entity_scope") or scope, entry["terminology"])
+            entries_by_group.setdefault(group_key, []).append(entry)
+
+        chart_groups = []
+        for (scope_key, terminology_name), terminology_entries in sorted(
+            entries_by_group.items(),
+            key=lambda item: (item[1][0].get("entity_scope_label") or item[0][0], item[1][0]["terminology_label"]),
+        ):
+            group_colors = [PALETTE[i % len(PALETTE)] for i in range(len(terminology_entries))]
+            depth_labels = sorted(
                 {
-                    "label": entry["series_label"],
-                    "data": [
-                        round(entry["depth"].get(str(depth), {}).get("proportion", 0) * 100, 2)
-                        for depth in depth_labels
-                    ],
-                    "borderColor": colors[i],
-                    "backgroundColor": colors[i] + "22",
-                    "fill": False,
-                    "borderWidth": 2,
-                    "pointRadius": 4,
-                    "tension": 0.3,
+                    int(depth)
+                    for entry in terminology_entries
+                    for depth in entry.get("depth", {})
+                    if str(depth).isdigit()
                 }
             )
-        depth_note = "Mean annotation depth: " + " | ".join(
-            f"{entry['series_label']} {entry['mean_depth']}" for entry in entries
-        ) if entries else "No terminology data for this entity scope."
+            depth_datasets = []
+            for i, entry in enumerate(terminology_entries):
+                depth_datasets.append(
+                    {
+                        "label": entry["display_name"],
+                        "data": [
+                            round(entry["depth"].get(str(depth), {}).get("proportion", 0) * 100, 2)
+                            for depth in depth_labels
+                        ],
+                        "borderColor": group_colors[i],
+                        "backgroundColor": group_colors[i] + "22",
+                        "fill": False,
+                        "borderWidth": 2,
+                        "pointRadius": 4,
+                        "tension": 0.3,
+                    }
+                )
+            depth_note = "Mean annotation depth: " + " | ".join(
+                f"{entry['display_name']} {entry['mean_depth']}" for entry in terminology_entries
+            ) if terminology_entries else "No terminology data for this entity scope."
 
-        branch_codes = sorted(
-            {
-                code
-                for entry in entries
-                for code, branch in entry.get("branches", {}).items()
-                if branch.get("proportion", 0) > 0
-            },
-            key=lambda code: -sum(entry.get("branches", {}).get(code, {}).get("proportion", 0) for entry in entries),
-        )
-        branch_labels = []
-        for code in branch_codes:
-            label = next(
-                (
-                    entry["branches"][code].get("label")
-                    for entry in entries
-                    if code in entry.get("branches", {})
-                ),
-                code,
-            )
-            branch_labels.append(f"{code} {label}")
-        recall_datasets = []
-        for i, entry in enumerate(entries):
-            recall_datasets.append(
+            branch_codes = sorted(
                 {
-                    "label": entry["series_label"],
-                    "data": [
-                        round(entry.get("branches", {}).get(code, {}).get("proportion", 0) * 100, 2)
-                        for code in branch_codes
-                    ],
-                    "backgroundColor": colors[i] + "bb",
-                    "borderWidth": 0,
-                    "borderRadius": 2,
+                    code
+                    for entry in terminology_entries
+                    for code, branch in entry.get("branches", {}).items()
+                    if branch.get("configured_anchor") or branch.get("total", 0) > 0 or branch.get("proportion", 0) > 0
+                },
+                key=lambda code: -sum(entry.get("branches", {}).get(code, {}).get("proportion", 0) for entry in terminology_entries),
+            )
+            branch_labels = []
+            for code in branch_codes:
+                label = next(
+                    (
+                        entry["branches"][code].get("label")
+                        for entry in terminology_entries
+                        if code in entry.get("branches", {})
+                    ),
+                    code,
+                )
+                branch_labels.append(label if label == code else f"{code} {label}")
+            recall_datasets = []
+            for i, entry in enumerate(terminology_entries):
+                recall_datasets.append(
+                    {
+                        "label": entry["display_name"],
+                        "data": [
+                            round(entry.get("branches", {}).get(code, {}).get("proportion", 0) * 100, 2)
+                            for code in branch_codes
+                        ],
+                        "backgroundColor": group_colors[i] + "bb",
+                        "borderWidth": 0,
+                        "borderRadius": 2,
+                    }
+                )
+            chart_groups.append(
+                {
+                    "key": f"{scope_key}:{terminology_name}",
+                    "title": f"{terminology_entries[0].get('entity_scope_label') or scope_key} / {terminology_entries[0]['terminology_label']}",
+                    "depth": {
+                        "labels": depth_labels,
+                        "datasets": depth_datasets,
+                        "note": depth_note,
+                    },
+                    "recall": {
+                        "labels": branch_labels,
+                        "datasets": recall_datasets,
+                        "height": max(320, len(branch_labels) * 44 + 120),
+                    },
                 }
             )
 
@@ -836,15 +877,7 @@ def _terminology_profiles(term_data):
                 "missing": [entry["missing_pct"] for entry in entries],
                 "colors": colors,
             },
-            "depth": {
-                "labels": depth_labels,
-                "datasets": depth_datasets,
-            },
-            "depthNote": depth_note,
-            "recall": {
-                "labels": branch_labels,
-                "datasets": recall_datasets,
-            },
+            "chartGroups": chart_groups,
         }
     return profiles
 
@@ -889,21 +922,12 @@ def build_terminology_panels(term_data):
 
 <div class="panel" id="pterm3">
   <p class="sec">Annotation depth distribution</p>
-  <div class="cw" style="height:300px">
-    <canvas id="tmc3" role="img" aria-label="Line chart: depth distribution comparison.">
-      Depth distribution for all corpora.
-    </canvas>
-  </div>
-  <div class="fn" id="termDepthNote"></div>
+  <div id="termDepthCharts"></div>
 </div>
 
 <div class="panel" id="pterm4">
   <p class="sec">Recall</p>
-  <div class="cw" id="termRecallWrap" style="height:420px">
-    <canvas id="tmc4" role="img" aria-label="Grouped horizontal bar: terminology branch recall.">
-      Terminology branch recall.
-    </canvas>
-  </div>
+  <div id="termRecallCharts"></div>
   <p class="note">Recall = unique corpus concept count in branch ÷ total terminology concepts in that branch.
   Only branches with signal in the selected scope are shown.</p>
 </div>
@@ -919,11 +943,19 @@ def build_terminology_panels(term_data):
   const charts = {{}};
 
   function currentProfile(scope) {{
-    return TERM_PROFILES[scope] || TERM_PROFILES.all || {{entries:[], coverage:null, depth:null, recall:null, tableRows:'', depthNote:'No terminology data.'}};
+    return TERM_PROFILES[scope] || TERM_PROFILES.all || {{entries:[], coverage:null, chartGroups:[], tableRows:''}};
   }}
   function noData(id, message) {{
     const el = document.getElementById(id);
     if (el) el.innerHTML = message || 'No terminology data for this entity scope.';
+  }}
+  function destroyCharts(prefix) {{
+    Object.keys(charts).forEach(id => {{
+      if (id.startsWith(prefix)) {{
+        charts[id].destroy();
+        delete charts[id];
+      }}
+    }});
   }}
   function updateBar(id, config) {{
     const canvas = document.getElementById(id);
@@ -970,57 +1002,82 @@ def build_terminology_panels(term_data):
 
   function renderTerm3(scope) {{
     const p = currentProfile(scope);
-    const note = document.getElementById('termDepthNote');
-    if (note) note.innerHTML = p.depthNote || 'No terminology data for this entity scope.';
-    if (!p.depth || !p.depth.labels.length) {{
-      if (charts.tmc3) {{ charts.tmc3.destroy(); delete charts.tmc3; }}
+    const root = document.getElementById('termDepthCharts');
+    destroyCharts('tmc3_');
+    if (!root) return;
+    const groups = (p.chartGroups || []).filter(group => group.depth && group.depth.labels.length);
+    if (!groups.length) {{
+      root.innerHTML = '<div class="fn">No terminology data for this entity scope.</div>';
       return;
     }}
-    updateBar('tmc3', {{
-      type:'line',
-      data:{{ labels:p.depth.labels, datasets:p.depth.datasets }},
-      options:{{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{{ legend:{{ display:true, position:'top', align:'end',
-          labels:{{ boxWidth:10,boxHeight:10,borderRadius:2,font:{{size:11}},color:tc }} }},
-          tooltip:{{ callbacks:{{ label: ctx =>
-            ` ${{ctx.dataset.label}}: ${{ctx.parsed.y.toFixed(1)}}%`
-          }} }} }},
-        scales:{{
-          x:{{ title:{{display:true,text:'Ontology hierarchy depth',color:tc,font:{{size:11}}}},
-               ticks:{{color:tc,font:{{size:11}}}}, grid:{{color:gc}} }},
-          y:{{ min:0,
-               title:{{display:true,text:'% of annotations',color:tc,font:{{size:11}}}},
-               ticks:{{color:tc,font:{{size:11}},callback:v=>v+'%'}}, grid:{{color:gc}} }}
+    root.innerHTML = groups.map((group, i) => `
+      <p class="sec">${{group.title}}</p>
+      <div class="cw" style="height:300px">
+        <canvas id="tmc3_${{i}}" role="img" aria-label="Line chart: ${{group.title}} depth distribution comparison.">
+          Depth distribution for ${{group.title}}.
+        </canvas>
+      </div>
+      <div class="fn">${{group.depth.note || ''}}</div>
+    `).join('');
+    groups.forEach((group, i) => {{
+      updateBar(`tmc3_${{i}}`, {{
+        type:'line',
+        data:{{ labels:group.depth.labels, datasets:group.depth.datasets }},
+        options:{{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{{ legend:{{ display:true, position:'top', align:'end',
+            labels:{{ boxWidth:10,boxHeight:10,borderRadius:2,font:{{size:11}},color:tc }} }},
+            tooltip:{{ callbacks:{{ label: ctx =>
+              ` ${{ctx.dataset.label}}: ${{ctx.parsed.y.toFixed(1)}}%`
+            }} }} }},
+          scales:{{
+            x:{{ title:{{display:true,text:'Ontology hierarchy depth',color:tc,font:{{size:11}}}},
+                 ticks:{{color:tc,font:{{size:11}}}}, grid:{{color:gc}} }},
+            y:{{ min:0,
+                 title:{{display:true,text:'% of annotations',color:tc,font:{{size:11}}}},
+                 ticks:{{color:tc,font:{{size:11}},callback:v=>v+'%'}}, grid:{{color:gc}} }}
+          }}
         }}
-      }}
+      }});
     }});
   }}
 
   function renderTerm4(scope) {{
     const p = currentProfile(scope);
-    if (!p.recall || !p.recall.labels.length) {{
-      if (charts.tmc4) {{ charts.tmc4.destroy(); delete charts.tmc4; }}
+    const root = document.getElementById('termRecallCharts');
+    destroyCharts('tmc4_');
+    if (!root) return;
+    const groups = (p.chartGroups || []).filter(group => group.recall && group.recall.labels.length);
+    if (!groups.length) {{
+      root.innerHTML = '<div class="fn">No terminology data for this entity scope.</div>';
       return;
     }}
-    const wrap = document.getElementById('termRecallWrap');
-    if (wrap) wrap.style.height = `${{Math.max(320, p.recall.labels.length * 44 + 120)}}px`;
-    updateBar('tmc4', {{
-      type:'bar',
-      data:{{ labels:p.recall.labels, datasets:p.recall.datasets }},
-      options:{{
-        responsive:true, maintainAspectRatio:false, indexAxis:'y',
-        plugins:{{ legend:{{ display:true, position:'top', align:'end',
-          labels:{{ boxWidth:10,boxHeight:10,borderRadius:2,font:{{size:11}},color:tc }} }},
-          tooltip:{{ callbacks:{{ label: ctx =>
-            ` ${{ctx.dataset.label}}: ${{ctx.parsed.x.toFixed(1)}}%`
-          }} }} }},
-        scales:{{
-          x:{{ title:{{display:true,text:'% of terminology branch concepts covered',color:tc,font:{{size:11}}}},
-               ticks:{{color:tc,font:{{size:11}},callback:v=>v+'%'}}, grid:{{color:gc}} }},
-          y:{{ ticks:{{color:tc,font:{{size:11}}}}, grid:{{color:gc}} }}
+    root.innerHTML = groups.map((group, i) => `
+      <p class="sec">${{group.title}}</p>
+      <div class="cw" style="height:${{group.recall.height}}px">
+        <canvas id="tmc4_${{i}}" role="img" aria-label="Grouped horizontal bar: ${{group.title}} branch recall.">
+          Terminology branch recall for ${{group.title}}.
+        </canvas>
+      </div>
+    `).join('');
+    groups.forEach((group, i) => {{
+      updateBar(`tmc4_${{i}}`, {{
+        type:'bar',
+        data:{{ labels:group.recall.labels, datasets:group.recall.datasets }},
+        options:{{
+          responsive:true, maintainAspectRatio:false, indexAxis:'y',
+          plugins:{{ legend:{{ display:true, position:'top', align:'end',
+            labels:{{ boxWidth:10,boxHeight:10,borderRadius:2,font:{{size:11}},color:tc }} }},
+            tooltip:{{ callbacks:{{ label: ctx =>
+              ` ${{ctx.dataset.label}}: ${{ctx.parsed.x.toFixed(1)}}%`
+            }} }} }},
+          scales:{{
+            x:{{ title:{{display:true,text:'% of terminology branch concepts covered',color:tc,font:{{size:11}}}},
+                 ticks:{{color:tc,font:{{size:11}},callback:v=>v+'%'}}, grid:{{color:gc}} }},
+            y:{{ ticks:{{color:tc,font:{{size:11}}}}, grid:{{color:gc}} }}
+          }}
         }}
-      }}
+      }});
     }});
   }}
 

@@ -9,6 +9,9 @@ def _term_label(name: str) -> str:
         "chebi": "ChEBI",
     }.get(name, name.replace("_", " "))
 
+def _scope_label(scope: str) -> str:
+    return scope.replace("_", " ").title()
+
 def _metric_scope_payload(metric: dict, scope: str) -> dict | None:
     if scope == "all":
         return metric
@@ -29,6 +32,7 @@ def _process_term_payload(corpus_name: str, terminology_name: str, hlc: dict, dc
             "count": item.get("count", 0),
             "proportion": item.get("proportion", 0) or 0,
             "total": item.get("terminology_total_count", item.get("mesh_total_count", 0)),
+            "configured_anchor": bool(details.get("term_overrides_path")),
         }
 
     depth = {}
@@ -50,6 +54,8 @@ def _process_term_payload(corpus_name: str, terminology_name: str, hlc: dict, dc
 
     return {
         "display_name": corpus_name.replace("_", "-").replace("_corpus", ""),
+        "entity_scope": "",
+        "entity_scope_label": "",
         "terminology": terminology_name,
         "terminology_label": _term_label(terminology_name),
         "series_label": f"{corpus_name.replace('_corpus', '').replace('_', '-')} / {_term_label(terminology_name)}",
@@ -93,6 +99,8 @@ def process_terminology_stats(raw):
                     continue
                 entry = _process_term_payload(corpus_name, terminology_name, high_payload, depth_payload)
                 if entry["n_input_ids"] > 0:
+                    entry["entity_scope"] = scope
+                    entry["entity_scope_label"] = _scope_label(scope)
                     by_scope[scope].append(entry)
         processed[norm_corpus_name(corpus_name)] = {"by_scope": by_scope}
     return processed
