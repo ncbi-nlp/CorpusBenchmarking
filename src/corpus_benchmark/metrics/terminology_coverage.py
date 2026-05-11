@@ -31,6 +31,19 @@ def _identifier_links_for_terminology(
     ]
 
 
+def _unique_concept_ids(ids: list[str], terminology: TerminologyResource) -> list[str]:
+    unique_ids = []
+    seen = set()
+    for ui in ids:
+        concept = terminology.get_concept(ui)
+        key = concept.ui if concept is not None else terminology.normalize_identifier(ui)
+        if key is None or key in seen:
+            continue
+        unique_ids.append(key)
+        seen.add(key)
+    return unique_ids
+
+
 def _term_overrides_path(params: dict[str, Any], annotation_filter_name: str | None) -> str | None:
     paths_by_scope = params.get("term_override_paths_by_entity_scope") or {}
     if paths_by_scope:
@@ -73,16 +86,17 @@ def _get_anchor_counter(
 def high_level_concept_counts(target: MetricTarget, result_name: str, terminology: TerminologyResource, annotation_filter_name: str | None = None, **params) -> SubsetMetricResult:
     identifier_links = _identifier_links_for_terminology(target, terminology, annotation_filter_name)
     ids = [link.identifier for link in identifier_links if link.identifier is not None]
+    unique_ids = _unique_concept_ids(ids, terminology)
     missing_ids = [ui for ui in ids if terminology.get_concept(ui) is None]
     missing_ids = sorted(list(set(missing_ids)))
     term_overrides_path = _term_overrides_path(params, annotation_filter_name)
     counter = _get_anchor_counter(target, terminology, annotation_filter_name, params)
 
     if term_overrides_path:
-        corpus_counts = counter.count_by_anchor(ids)
+        corpus_counts = counter.count_by_anchor(unique_ids)
         global_counts = counter.get_global_counts_by_anchor()
     else:
-        corpus_counts = counter.count_by_branch(ids)
+        corpus_counts = counter.count_by_branch(unique_ids)
         global_counts = counter.get_global_counts_by_branch()
 
     all_branches = sorted(corpus_counts.keys())
@@ -116,6 +130,7 @@ def high_level_concept_counts(target: MetricTarget, result_name: str, terminolog
         value=rows,
         details={
             "n_input_ids": len(ids),
+            "n_unique_input_ids": len(unique_ids),
             "n_missing_ids": len(missing_ids),
             "missing_ids": missing_ids,
             "terminology": terminology.name,
@@ -133,6 +148,7 @@ def concept_depth_counts(target: MetricTarget, result_name: str, terminology: Te
 
     corpus_counts = counter.count_by_depth(ids)
     global_counts = counter.get_global_counts_by_depth()
+    corpus_total = sum(corpus_counts.values())
 
     all_depths = sorted(set(corpus_counts.keys()) | set(global_counts.keys()))
     rows = []
@@ -145,7 +161,7 @@ def concept_depth_counts(target: MetricTarget, result_name: str, terminology: Te
                 "count": round(c_count, PRECISION),
                 "terminology_total_count": round(m_count, PRECISION),
                 "mesh_total_count": round(m_count, PRECISION),
-                "proportion": round(c_count / m_count, PRECISION) if m_count > 0 else 0.0,
+                "proportion": round(c_count / corpus_total, PRECISION) if corpus_total > 0 else 0.0,
             }
         )
 

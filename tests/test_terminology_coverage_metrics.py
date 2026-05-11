@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from corpus_benchmark.context import BenchmarkContext, MetricTarget
-from corpus_benchmark.metrics.terminology_coverage import high_level_concept_counts
+from corpus_benchmark.metrics.terminology_coverage import concept_depth_counts, high_level_concept_counts
 from corpus_benchmark.models.corpus import Annotation, AnnotationSpan, CorpusSubset, Document, IdentifierLink, Passage
 from corpus_benchmark.models.filters import AnnotationFilter
 from corpus_benchmark.models.terminologies import TerminologyConcept, TerminologyResource, TerminologyTopicAnchorCounter
@@ -44,6 +44,26 @@ def _target_for_link(identifier: str, resource: str, label: str = "Entity") -> M
         link=IdentifierLink(identifier=identifier, resource=resource),
     )
     passage = Passage("p1", "entity", 0, [annotation])
+    subset = CorpusSubset("train", [Document("doc1", [passage])])
+    context = BenchmarkContext(
+        workspace=object(),
+        annotation_filters={"entity": AnnotationFilter(labels={label})},
+    )
+    return MetricTarget("Example_corpus", [(subset, context)])
+
+
+def _target_for_links(links: list[IdentifierLink], label: str = "Entity") -> MetricTarget:
+    annotations = [
+        Annotation(
+            mention_id=f"a{i}",
+            text="entity",
+            spans=[AnnotationSpan(i * 10, i * 10 + 6)],
+            label=label,
+            link=link,
+        )
+        for i, link in enumerate(links, start=1)
+    ]
+    passage = Passage("p1", "entity entity entity", 0, annotations)
     subset = CorpusSubset("train", [Document("doc1", [passage])])
     context = BenchmarkContext(
         workspace=object(),
@@ -152,3 +172,55 @@ def test_high_level_concept_counts_selects_scope_specific_term_overrides(tmp_pat
     assert unscoped.details["term_overrides_path"] is None
     assert scoped.value[0]["branch_code"] == "Broad A"
     assert scoped.details["term_overrides_path"] == str(mapping_path)
+
+
+def test_high_level_concept_counts_uses_unique_corpus_concepts_for_recall() -> None:
+    terminology = TerminologyResource(
+        name="example",
+        concepts={
+            "R1": TerminologyConcept(ui="R1", name="Root A"),
+            "T1": TerminologyConcept(ui="T1", name="Term One", parent_ids=["R1"]),
+        },
+        resource_aliases=["EX"],
+    )
+    target = _target_for_links(
+        [
+            IdentifierLink(identifier="T1", resource="EX"),
+            IdentifierLink(identifier="T1", resource="EX"),
+            IdentifierLink(identifier="T1", resource="EX"),
+        ]
+    )
+
+    result = high_level_concept_counts(target, "high_level_concept_counts", terminology)
+
+    assert result.details["n_input_ids"] == 3
+    assert result.details["n_unique_input_ids"] == 1
+    assert result.value[0]["count"] == 1
+    assert result.value[0]["proportion"] == 0.5
+
+
+def test_concept_depth_counts_reports_annotation_depth_distribution() -> None:
+    terminology = TerminologyResource(
+        name="example",
+        concepts={
+            "R1": TerminologyConcept(ui="R1", name="Root A"),
+            "T1": TerminologyConcept(ui="T1", name="Term One", parent_ids=["R1"]),
+            "T2": TerminologyConcept(ui="T2", name="Term Two", parent_ids=["T1"]),
+        },
+        resource_aliases=["EX"],
+    )
+    target = _target_for_links(
+        [
+            IdentifierLink(identifier="T1", resource="EX"),
+            IdentifierLink(identifier="T1", resource="EX"),
+            IdentifierLink(identifier="T2", resource="EX"),
+        ]
+    )
+
+    result = concept_depth_counts(target, "concept_depth_counts", terminology)
+    proportions = {row["depth"]: row["proportion"] for row in result.value}
+
+    assert proportions[1] == 0.0
+    assert proportions[2] == round(2 / 3, 8)
+    assert proportions[3] == round(1 / 3, 8)
+    assert sum(proportions.values()) == 1.0
