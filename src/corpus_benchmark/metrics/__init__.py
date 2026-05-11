@@ -59,6 +59,7 @@ from corpus_benchmark.metrics.overlaps import (
 )
 
 from corpus_benchmark.metrics.metadata_distribution import (
+    article_MeSH_topic_distribution,
     journal_distribution,
     journal_MeSH_topic_distribution,
     journal_topic_distribution,
@@ -111,6 +112,7 @@ __all__ = [
     "mention_overlap",
     "mention_token_overlap",
     "identifier_overlap",
+    "article_MeSH_topic_distribution",
     "journal_distribution",
     "journal_MeSH_topic_distribution",
     "journal_topic_distribution",

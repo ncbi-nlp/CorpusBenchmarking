@@ -23,6 +23,7 @@ def test_metadata_distribution_metrics_declare_metadata_dependency() -> None:
     assert getattr(SUBSET_METRICS["journal_distribution"], "requires_metadata") is True
     assert getattr(SUBSET_METRICS["journal_topic_distribution"], "requires_metadata") is True
     assert getattr(SUBSET_METRICS["journal_MeSH_topic_distribution"], "requires_metadata") is True
+    assert getattr(SUBSET_METRICS["article_MeSH_topic_distribution"], "requires_metadata") is True
     assert getattr(SUBSET_METRICS["publication_year_distribution"], "requires_metadata") is True
 
 

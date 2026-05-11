@@ -334,10 +334,10 @@ def _entity_profile_data(corpora, colours, config):
         }
     return data
 
-def build_topic_table(corpora) -> str:
+def build_topic_table(corpora, metadata_key: str = "topic_dist") -> str:
     """Generate an HTML table: rows = topics, columns = corpora with topic data."""
     with_td = sorted(
-        [c for c in corpora if (c.get("metadata") or {}).get("topic_dist")],
+        [c for c in corpora if (c.get("metadata") or {}).get(metadata_key)],
         key=lambda c: c["name"],
     )
     if not with_td:
@@ -345,7 +345,7 @@ def build_topic_table(corpora) -> str:
 
     corp_names = [c["name"] for c in with_td]
     observed_topics = {
-        topic for c in with_td for topic in c["metadata"]["topic_dist"].keys()
+        topic for c in with_td for topic in c["metadata"][metadata_key].keys()
     }
     ordered_topics = [
         topic for topic in JOURNAL_TOPIC_ORDER if topic in observed_topics
@@ -359,7 +359,7 @@ def build_topic_table(corpora) -> str:
     # Rows — only topics with at least 1% in at least one corpus
     rows = []
     for topic in ordered_topics:
-        vals = [c["metadata"]["topic_dist"].get(topic, 0.0) for c in with_td]
+        vals = [c["metadata"][metadata_key].get(topic, 0.0) for c in with_td]
         if max(vals) < 1.0:
             continue
         col = JOURNAL_TOPIC_COLORS.get(topic, "#D3D1C7")
@@ -380,9 +380,9 @@ def build_topic_table(corpora) -> str:
     total_cells = ""
     for c in with_td:
         shown = sum(
-            c["metadata"]["topic_dist"].get(t, 0)
+            c["metadata"][metadata_key].get(t, 0)
             for t in ordered_topics
-            if max(cc["metadata"]["topic_dist"].get(t, 0) for cc in with_td) >= 1.0
+            if max(cc["metadata"][metadata_key].get(t, 0) for cc in with_td) >= 1.0
         )
         total_cells += f'<td class="r" style="font-weight:600">{shown:.0f}%</td>'
 
@@ -519,11 +519,13 @@ def build_metadata_panels(corpora, colours):
     n = len(corpora)
     d = _meta_chart_data(corpora, colours)
     topic_table = build_topic_table(corpora)
+    article_topic_table = build_topic_table(corpora, "article_topic_dist")
 
     tabs = (
         '\n  <button class="tab" data-p="p8">Journal metadata</button>'
         '\n  <button class="tab" data-p="p9">Temporal coverage</button>'
         '\n  <button class="tab" data-p="p10">Journal topics</button>'
+        '\n  <button class="tab" data-p="p11">Article topics</button>'
     )
 
     panels = f"""
@@ -593,6 +595,18 @@ def build_metadata_panels(corpora, colours):
     journals that do not have MeSH topics. Only topics with ≥ 1% share in at least one
     corpus are shown. Dominant value per row is bold. Percentages may not sum to exactly
     100 due to rounding.
+  </div>
+</div>
+
+<div class="panel" id="p11">
+  <p class="sec">Article topic distribution per corpus (%)</p>
+  {article_topic_table}
+  <div class="fn">
+    Topics are high-level MeSH-derived article categories resolved from article
+    metadata MeSH terms, with unresolved article-term fractions filled from journal
+    MeSH topics and configured journal-name fallback topics. Only topics with ≥ 1%
+    share in at least one corpus are shown. Dominant value per row is bold.
+    Percentages may not sum to exactly 100 due to rounding.
   </div>
 </div>
 

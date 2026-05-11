@@ -1,7 +1,20 @@
 import json
 from .base import norm_corpus_name
 
-def _process_metadata(jd_raw, yd_raw, td_raw):
+def _topic_distribution(td_raw):
+    topic_clean = {
+        k: float(v)
+        for k, v in (td_raw or {}).items()
+        if k not in ("Unknown", None) and v
+    }
+    return (
+        {topic: round(frac * 100, 1) for topic, frac in sorted(topic_clean.items())}
+        if topic_clean
+        else None
+    )
+
+
+def _process_metadata(jd_raw, yd_raw, journal_td_raw, article_td_raw):
     j_clean = {
         k: v for k, v in (jd_raw or {}).items() if k not in ("Unknown", None) and v
     }
@@ -43,21 +56,11 @@ def _process_metadata(jd_raw, yd_raw, td_raw):
             },
         }
 
-    topic_clean = {
-        k: float(v)
-        for k, v in (td_raw or {}).items()
-        if k not in ("Unknown", None) and v
-    }
-    topic_dist = (
-        {topic: round(frac * 100, 1) for topic, frac in sorted(topic_clean.items())}
-        if topic_clean
-        else None
-    )
-
     return {
         "journal": journal,
         "year": year,
-        "topic_dist": topic_dist,
+        "topic_dist": _topic_distribution(journal_td_raw),
+        "article_topic_dist": _topic_distribution(article_td_raw),
         "has_metadata": journal is not None or year is not None,
     }
 
@@ -83,7 +86,7 @@ def load_metadata_stats(path):
             ),
             {},
         )
-        td = next(
+        journal_td = next(
             (
                 m.get("value", {})
                 for m in metrics
@@ -91,7 +94,15 @@ def load_metadata_stats(path):
             ),
             {},
         )
-        result[norm_corpus_name(corpus_name)] = _process_metadata(jd, yd, td)
+        article_td = next(
+            (
+                m.get("value", {})
+                for m in metrics
+                if m.get("metric_name") == "article_MeSH_topic_distribution"
+            ),
+            {},
+        )
+        result[norm_corpus_name(corpus_name)] = _process_metadata(jd, yd, journal_td, article_td)
     return result
 
 
