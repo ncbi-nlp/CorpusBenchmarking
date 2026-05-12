@@ -1,5 +1,6 @@
 import json
 import yaml
+from html import escape
 from pathlib import Path
 from .base import PALETTE, OV_COLS, BAR_SCALE, JOURNAL_TOPIC_ORDER, JOURNAL_TOPIC_COLORS, get_metric, get_stat, norm_corpus_name
 from .stats import compute_entropy_from_counts, get_id_info, get_total_ann
@@ -334,8 +335,20 @@ def _entity_profile_data(corpora, colours, config):
         }
     return data
 
-def build_topic_table(corpora, metadata_key: str = "topic_dist") -> str:
-    """Generate an HTML table: rows = topics, columns = corpora with topic data."""
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join(ch * 2 for ch in hex_color)
+    if len(hex_color) != 6:
+        return (127, 119, 221)
+    try:
+        return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return (127, 119, 221)
+
+
+def build_topic_heatmap(corpora, metadata_key: str = "topic_dist") -> str:
+    """Generate an HTML heatmap: rows = topics, columns = corpora with topic data."""
     with_td = sorted(
         [c for c in corpora if (c.get("metadata") or {}).get(metadata_key)],
         key=lambda c: c["name"],
@@ -343,67 +356,98 @@ def build_topic_table(corpora, metadata_key: str = "topic_dist") -> str:
     if not with_td:
         return "<p style='color:var(--color-text-secondary);font-size:13px'>No topic data available.</p>"
 
-    corp_names = [c["name"] for c in with_td]
     observed_topics = {
         topic for c in with_td for topic in c["metadata"][metadata_key].keys()
     }
     ordered_topics = [
         topic for topic in JOURNAL_TOPIC_ORDER if topic in observed_topics
     ] + sorted(observed_topics - set(JOURNAL_TOPIC_ORDER))
+    shown_topics = [
+        topic
+        for topic in ordered_topics
+        if max(c["metadata"][metadata_key].get(topic, 0.0) for c in with_td) >= 1.0
+    ]
+    if not shown_topics:
+        return "<p style='color:var(--color-text-secondary);font-size:13px'>No topic data available.</p>"
 
-    # Header
-    th_cells = '<th class="l">Topic</th>' + "".join(
-        f'<th class="r">{n}</th>' for n in corp_names
+    heatmap_color = "#7F77DD"
+    heatmap_rgb = _hex_to_rgb(heatmap_color)
+    heatmap_max = max(
+        c["metadata"][metadata_key].get(topic, 0.0)
+        for c in with_td
+        for topic in shown_topics
     )
-
-    # Rows — only topics with at least 1% in at least one corpus
+    grid_template = (
+        "grid-template-columns:minmax(210px,1.35fr) "
+        f"repeat({len(with_td)},minmax(88px,1fr))"
+    )
+    header = (
+        '<div class="hm-corner">Topic</div>'
+        + "".join(
+            f'<div class="hm-col" title="{escape(c["name"])}">{escape(c["name"])}</div>'
+            for c in with_td
+        )
+    )
     rows = []
-    for topic in ordered_topics:
+    for topic in shown_topics:
         vals = [c["metadata"][metadata_key].get(topic, 0.0) for c in with_td]
-        if max(vals) < 1.0:
-            continue
         col = JOURNAL_TOPIC_COLORS.get(topic, "#D3D1C7")
         mx = max(vals)
-        td_cells = "".join(
-            f'<td class="r" style="font-weight:{"600" if v == mx and v >= 1 else "400"};'
-            f'color:{"var(--color-text-primary)" if v >= 1 else "var(--color-text-tertiary)"}">'
-            f'{"—" if v < 1 else f"{v:.0f}%"}</td>'
-            for v in vals
-        )
         dot = (
             f'<span style="display:inline-block;width:8px;height:8px;border-radius:2px;'
             f'background:{col};margin-right:6px;vertical-align:middle"></span>'
         )
-        rows.append(f'<tr><td class="l">{dot}{topic}</td>{td_cells}</tr>')
+        cells = []
+        for v in vals:
+            if v < 1:
+                cells.append('<div class="hm-cell hm-zero" title="Less than 1%">—</div>')
+                continue
+            intensity = min(v / heatmap_max, 1.0) if heatmap_max else 0.0
+            red = round(255 + (heatmap_rgb[0] - 255) * intensity)
+            green = round(255 + (heatmap_rgb[1] - 255) * intensity)
+            blue = round(255 + (heatmap_rgb[2] - 255) * intensity)
+            text_color = "#fff" if intensity >= 0.58 else "#111"
+            cells.append(
+                '<div class="hm-cell" '
+                f'style="background:rgb({red},{green},{blue});'
+                f'color:{text_color};'
+                f'font-weight:{"650" if v == mx else "500"}" '
+                f'title="{escape(topic)}: {v:.1f}%">'
+                f'{v:.0f}%</div>'
+            )
+        rows.append(
+            f'<div class="hm-row" style="{grid_template}">'
+            f'<div class="hm-topic">{dot}{escape(topic)}</div>'
+            f'{"".join(cells)}</div>'
+        )
 
-    # Footer: totals (sum of shown rows, should be ~100)
-    total_cells = ""
+    total_cells = []
     for c in with_td:
         shown = sum(
             c["metadata"][metadata_key].get(t, 0)
-            for t in ordered_topics
-            if max(cc["metadata"][metadata_key].get(t, 0) for cc in with_td) >= 1.0
+            for t in shown_topics
         )
-        total_cells += f'<td class="r" style="font-weight:600">{shown:.0f}%</td>'
+        total_cells.append(f'<div class="hm-total-cell">{shown:.0f}%</div>')
 
     return f"""
-<div style="overflow-x:auto">
-<table>
-<thead>
-  <tr>{th_cells}</tr>
-</thead>
-<tbody>
-  {"".join(rows)}
-</tbody>
-<tfoot>
-  <tr style="border-top:1.5px solid var(--color-border-primary)">
-    <td class="l" style="font-weight:600;color:var(--color-text-secondary);font-size:11px">
-      Total shown</td>
-    {total_cells}
-  </tr>
-</tfoot>
-</table>
+<div class="topic-heatmap-wrap">
+  <div class="topic-heatmap">
+    <div class="hm-head" style="{grid_template}">
+      {header}
+    </div>
+    {"".join(rows)}
+    <div class="hm-total" style="{grid_template}">
+      <div>Total shown</div>{"".join(total_cells)}
+    </div>
+  </div>
+  <div class="hm-scale" aria-hidden="true">
+    <span>Lower</span><span class="hm-ramp"></span><span>Higher within topic</span>
+  </div>
 </div>"""
+
+
+def build_topic_table(corpora, metadata_key: str = "topic_dist") -> str:
+    return build_topic_heatmap(corpora, metadata_key)
 
 def _meta_chart_data(corpora, colours):
     ci = {c["name"]: i for i, c in enumerate(corpora)}

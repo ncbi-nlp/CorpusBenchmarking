@@ -54,6 +54,25 @@ HTML = """\
   .bar-bg{{flex:1;background:#e5e3dc;border-radius:2px;height:6px;overflow:hidden}}
   .bar-fill{{height:6px;border-radius:2px}}
   .bar-val{{font-size:11.5px;min-width:36px;text-align:right;font-variant-numeric:tabular-nums;color:#333}}
+  .topic-heatmap-wrap{{overflow-x:auto;background:#fff;border:.5px solid #ddd;border-radius:8px}}
+  .topic-heatmap{{min-width:760px;font-size:12px}}
+  .hm-head,.hm-row,.hm-total{{display:grid;align-items:stretch}}
+  .hm-head{{position:sticky;top:0;z-index:1;background:#f1efe8;border-bottom:1.5px solid #ccc}}
+  .hm-corner,.hm-col,.hm-topic,.hm-cell,.hm-total-cell,.hm-total>div:first-child{{padding:8px 10px}}
+  .hm-corner,.hm-col{{font-weight:500;color:#555;line-height:1.25}}
+  .hm-col{{text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+  .hm-row{{border-bottom:.5px solid #eee}}
+  .hm-row:hover{{background:#fafafa}}
+  .hm-topic{{display:flex;align-items:center;color:#333;min-width:0}}
+  .hm-cell{{display:flex;align-items:center;justify-content:center;margin:3px;border-radius:4px;
+            color:#111;font-variant-numeric:tabular-nums;min-height:32px}}
+  .hm-zero{{background:#f2f1ed;color:#aaa;font-weight:400}}
+  .hm-total{{background:#f8f7f4;border-top:1.5px solid #ccc;font-weight:600;color:#555}}
+  .hm-total-cell{{text-align:center;font-variant-numeric:tabular-nums}}
+  .hm-scale{{display:flex;align-items:center;justify-content:flex-end;gap:7px;padding:8px 10px;
+             font-size:11px;color:#777;border-top:.5px solid #eee}}
+  .hm-ramp{{display:inline-block;width:90px;height:8px;border-radius:999px;
+            background:linear-gradient(90deg,#fff,#7F77DD);border:.5px solid #ddd}}
   .fn{{font-size:11.5px;color:#666;margin-top:1rem;line-height:1.7;
         border-top:.5px solid #ddd;padding-top:.75rem}}
   .fn sup{{font-size:9px;vertical-align:super}}
@@ -68,6 +87,14 @@ HTML = """\
     .scope-btn.sel{{background:#363348;border-color:#7F77DD;color:#e8e6e0}}
     .note{{border-left-color:#444;color:#aaa}} .fn{{color:#aaa;border-top-color:#3a3a38}}
     td.na{{color:#555}} .bar-bg{{background:#3a3a38}} .bar-val{{color:#ccc}}
+    .topic-heatmap-wrap{{background:#2a2a28;border-color:#3a3a38}}
+    .hm-head{{background:#333330;border-bottom-color:#444}}
+    .hm-corner,.hm-col{{color:#aaa}} .hm-row{{border-bottom-color:#3a3a38}}
+    .hm-row:hover{{background:#333330}} .hm-topic{{color:#ddd}}
+    .hm-cell{{color:#f3f1ea}} .hm-zero{{background:#333330;color:#666}}
+    .hm-total{{background:#2a2a28;border-top-color:#444;color:#aaa}}
+    .hm-scale{{border-top-color:#3a3a38;color:#888}}
+    .hm-ramp{{border-color:#555}}
     .p-yes{{background:#0f3d1e;color:#6fcf97}} .p-part{{background:#3d2e00;color:#f0c040}}
     .p-no{{background:#3d0f0f;color:#e57373}}
   }}

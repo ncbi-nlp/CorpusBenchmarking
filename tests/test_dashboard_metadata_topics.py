@@ -48,3 +48,5 @@ def test_build_metadata_panels_adds_article_topics_pane() -> None:
     assert 'id="p11"' in panels
     assert "Article topic distribution per corpus" in panels
     assert "Article Topic" in panels
+    assert "topic-heatmap" in panels
+    assert "hm-cell" in panels
